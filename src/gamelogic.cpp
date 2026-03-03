@@ -33,7 +33,6 @@ enum KeyFrameAction {
 
 #include <timestamps.h>
 
-int initTexture(PNGImage* im);
 
 double padPositionX = 0;
 double padPositionZ = 0;
@@ -46,8 +45,6 @@ SceneNode* boxNode;
 SceneNode* ballNode;
 SceneNode* padNode;
 
-SceneNode* textureNode;
-
 const int NUM_LIGHTS = 3;
 
 double ballRadius = 3.0f;
@@ -59,12 +56,6 @@ Gloom::Shader* textureShader;
 sf::Sound* sound;
 
 Gloom::Camera* camera = new Gloom::Camera(glm::vec3(0.0,0.0, -20.0));
-
-PNGImage charMap;
-PNGImage debugMap;
-PNGImage brickDiffuse;
-PNGImage brickNormal;
-PNGImage brickRough;
 
 const glm::vec3 boxDimensions(180, 90, 90);
 const glm::vec3 padDimensions(30, 3, 40);
@@ -141,54 +132,6 @@ void initGame(GLFWwindow* window, CommandLineOptions gameOptions) {
         return;
     }
 
-    // std::string filePath = "../res/textures/charmap.png"; 
-    // charMap = loadPNGFile(filePath);
-    
-    // std::cout << "Charmap loaded: " << charMap.width << "x" << charMap.height << std::endl;
-    
-    // if (charMap.width == 0 || charMap.height == 0) {
-    //     std::cerr << "ERROR: Failed to load charmap texture!" << std::endl;
-    //     return;
-    // }
-
-    // filePath = "../res/textures/normal-map-debug.png"; 
-    // debugMap = loadPNGFile(filePath);
-    
-    // std::cout << "DebugMap loaded: " << debugMap.width << "x" << debugMap.height << std::endl;
-    
-    // if (debugMap.width == 0 || debugMap.height == 0) {
-    //     std::cerr << "ERROR: Failed to load debugMap texture!" << std::endl;
-    //     return;
-    // }
-    // int debugMapID = initTexture(&debugMap);
-
-    // filePath = "../res/textures/Brick03_col.png";
-    // brickDiffuse = loadPNGFile(filePath);
-    // std::cout << "Brick diffuse loaded: " << brickDiffuse.width << "x" << brickDiffuse.height << std::endl;
-    // if (brickDiffuse.width == 0 || brickDiffuse.height == 0) {
-    //     std::cerr << "ERROR: Failed to load Brick03_col.png!" << std::endl;
-    //     return;
-    // }
-    // int brickDiffuseID = initTexture(&brickDiffuse);
-
-    // filePath = "../res/textures/Brick03_nrm.png";
-    // brickNormal = loadPNGFile(filePath);
-    // std::cout << "Brick normal loaded: " << brickNormal.width << "x" << brickNormal.height << std::endl;
-    // if (brickNormal.width == 0 || brickNormal.height == 0) {
-    //     std::cerr << "ERROR: Failed to load Brick03_nrm.png!" << std::endl;
-    //     return;
-    // }
-    // int brickNormalID = initTexture(&brickNormal);
-
-    // filePath = "../res/textures/Brick03_rgh.png";
-    // brickRough = loadPNGFile(filePath);
-    // std::cout << "Brick roughness loaded: " << brickRough.width << "x" << brickRough.height << std::endl;
-    // if (brickRough.width == 0 || brickRough.height == 0) {
-    //     std::cerr << "ERROR: Failed to load Brick03_rgh.png!" << std::endl;
-    //     return;
-    // }
-    // int brickRoughID = initTexture(&brickRough);
-
     options = gameOptions;
 
     // glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_HIDDEN);
@@ -204,15 +147,6 @@ void initGame(GLFWwindow* window, CommandLineOptions gameOptions) {
     shader->makeBasicShader("../res/shaders/simple.vert", "../res/shaders/simple.frag");
     shader->activate();
 
-    textureShader = new Gloom::Shader();
-    textureShader->makeBasicShader("../res/shaders/texture.vert", "../res/shaders/texture.frag");
-
-    // Creating mesh and vao buffer for texture and creating textureNode
-    // int textureID = initTexture(&charMap);
-    // std::string test_string = "Writing text is for cool people!";
-    // Mesh texture = generateTextGeometryBuffer(test_string, 39.0f/29.0f, 128.0f*10.0f);
-    // unsigned int textureVAO = generateBuffer(texture);
-    // textureNode = createSceneNode();
 
     // Create meshes
     Mesh pad = cube(padDimensions, glm::vec2(30, 40), true);
@@ -260,20 +194,10 @@ void initGame(GLFWwindow* window, CommandLineOptions gameOptions) {
     rootNode->children.push_back(lightSources[1].node);
     rootNode->children.push_back(lightSources[2].node); 
 
-    // // Adding texture node to root
-    // rootNode->children.push_back(textureNode);
-
-    // textureNode->nodeType = GEOMETRY2D;
-    // textureNode->textureID = textureID;
-    // textureNode->vertexArrayObjectID  = textureVAO;
-    // textureNode->VAOIndexCount        = texture.indices.size();
 
     boxNode->vertexArrayObjectID  = boxVAO;
     boxNode->VAOIndexCount        = box.indices.size();
     boxNode->nodeType = GEOMETRY;
-    // boxNode->textureID = brickDiffuseID;   
-    // boxNode->normalMapID = brickNormalID;     
-    // boxNode->roughnessMapID = brickRoughID;   
     
 
     padNode->vertexArrayObjectID  = padVAO;
@@ -284,12 +208,6 @@ void initGame(GLFWwindow* window, CommandLineOptions gameOptions) {
 
 
     getTimeDeltaSeconds();
-
-    // std::cout << "box vertex count: " << box.vertices.size()
-    //           << " box texcoord count: " << box.textureCoordinates.size() << std::endl;
-    // std::cout << fmt::format("Initialized scene with {} SceneNodes.", totalChildren(rootNode)) << std::endl;
-
-    // std::cout << "Ready. Click to start!" << std::endl;
 }
 
 void updateFrame(GLFWwindow* window) {
@@ -482,15 +400,6 @@ void updateFrame(GLFWwindow* window) {
 }
 
 void updateNodeTransformations(SceneNode* node, glm::mat4 VP, glm::mat4 modelThusFar) {
-    if (node->nodeType == GEOMETRY2D) {
-        node->modelMatrix = glm::mat4(1.0f);
-        node->currentTransformationMatrix = glm::mat4(1.0f); // Not used for 2D
-        
-        for(SceneNode* child : node->children) {
-            updateNodeTransformations(child, VP, glm::mat4(1.0f));
-        }
-        return;
-    }
     
     glm::mat4 localTransform =
               glm::translate(node->position)
@@ -552,27 +461,6 @@ void setBallUniforms() {
     glUniform3fv(glGetUniformLocation(shader->get(), "ballPosition"), 1, glm::value_ptr(ballNode->position));
 }
 
-int initTexture(PNGImage* im) {
-    unsigned int id;
-    glGenTextures(1, &id);
-    glBindTexture(GL_TEXTURE_2D, id);
-    
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
-    
-    glTexImage2D(
-        GL_TEXTURE_2D, 0, GL_RGBA,
-        im->width, im->height, 0,
-        GL_RGBA, GL_UNSIGNED_BYTE,
-        im->pixels.data()
-    );
-    
-    glGenerateMipmap(GL_TEXTURE_2D);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-    
-    return id;
-}
 
 void renderNode(SceneNode* node) {
     if (node->nodeType == GEOMETRY2D) return;
@@ -622,40 +510,6 @@ void renderNode(SceneNode* node) {
     }
 }
 
-void render2DNode(SceneNode* node) {
-    switch(node->nodeType) {
-        case GEOMETRY: break;
-        case POINT_LIGHT: break;
-        case SPOT_LIGHT: break;
-        case GEOMETRY2D:
-            setTextureUniforms(node, windowWidth, windowHeight);
-            glBindVertexArray(node->vertexArrayObjectID);
-            glDrawElements(GL_TRIANGLES, node->VAOIndexCount, GL_UNSIGNED_INT, nullptr);
-            break;
-        case NORMALMAP: break;
-    }
-
-    for(SceneNode* child : node->children) {
-        render2DNode(child);
-    }
-}
-
-void setTextureUniforms(SceneNode* node, int windowWidth, int windowHeight) {
-    glm::mat4 ortho = glm::ortho(
-        0.0f, float(windowWidth), 
-        0.0f, float(windowHeight)
-    );
-    
-    glm::mat4 translation = glm::translate(glm::vec3(50.0f, windowHeight - 100.0f, 0.0f));
-    glm::mat4 MVP = ortho * translation;
-    // glm::mat4 MVP = ortho * node->modelMatrix;
-    
-    GLint mvpLoc = glGetUniformLocation(textureShader->get(), "MVP");
-    glUniformMatrix4fv(mvpLoc, 1, GL_FALSE, glm::value_ptr(MVP));
-    
-    // Bind texture to unit 0 (OpenGL 4.5+)
-    glBindTextureUnit(0, node->textureID);
-}
 
 
 void renderFrame(GLFWwindow* window) {
