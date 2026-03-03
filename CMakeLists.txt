@@ -3,6 +3,7 @@
 #
 cmake_minimum_required(VERSION 3.6)
 project (glowbox)
+find_package(PCL REQUIRED COMPONENTS io common)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON CACHE INTERNAL "") # nice for language servers
 
 #
@@ -26,6 +27,8 @@ else()
     endif()
 endif()
 message("python used: ${PYTHON_CMD}")
+
+
 
 #
 # CMake setup
@@ -131,5 +134,10 @@ target_link_libraries (${PROJECT_NAME}
                        sfml-audio
                        fmt::fmt
                        ${GLFW_LIBRARIES}
-                       ${GLAD_LIBRARIES})
+                       ${GLAD_LIBRARIES}
+                       ${PCL_LIBRARIES})
+
 set_property(DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR} PROPERTY VS_STARTUP_PROJECT glowbox)
+
+target_include_directories(${PROJECT_NAME} PRIVATE ${PCL_INCLUDE_DIRS})
+add_definitions(${PCL_DEFINITIONS})
