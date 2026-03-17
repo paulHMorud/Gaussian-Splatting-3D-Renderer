@@ -15,6 +15,7 @@
 #include <utilities/timeutils.h>
 
 
+
 void runProgram(GLFWwindow* window, CommandLineOptions options)
 {
     // Enable depth (Z) buffer (accept "closest" fragment)
@@ -36,6 +37,8 @@ void runProgram(GLFWwindow* window, CommandLineOptions options)
 
 	initGame(window, options);
 
+    double lastTime = glfwGetTime();
+
     // Rendering Loop
     while (!glfwWindowShouldClose(window))
     {
@@ -43,7 +46,11 @@ void runProgram(GLFWwindow* window, CommandLineOptions options)
 	    glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
 
-        updateFrame(window);
+        double currentTime = glfwGetTime();
+        float deltaTime = float(currentTime - lastTime);
+        lastTime = currentTime;
+
+        camera->updateCamera(deltaTime);
         renderFrame(window);
 
 
