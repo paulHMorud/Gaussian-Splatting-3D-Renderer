@@ -32,9 +32,7 @@ GaussianBuffers generateGaussianBuffer(const std::vector<GaussianData>& splats)
 
     glBindVertexArray(0);
 
-    // Converting splats to SSBO friendly format
-    std::vector<GPUGaussian> gpuSplats;
-    gpuSplats.reserve(splats.size());
+    buffers.gpuSplats.reserve(splats.size());
 
     for (const auto& s : splats) {
         glm::vec3 color = glm::clamp(glm::vec3(0.5f) + 0.28209479f * s.f_dc,
@@ -43,26 +41,23 @@ GaussianBuffers generateGaussianBuffer(const std::vector<GaussianData>& splats)
         float opacity = sigmoid(s.opacity);
         glm::mat3 cov = computeCov3D(s.rotation, s.scale);
 
-        gpuSplats.push_back({
+        buffers.gpuSplats.push_back({
             glm::vec4(s.position, opacity),
             glm::vec4(color, 0.0f),
-            glm::vec4(cov[0][0], cov[0][1], cov[0][2], cov[1][1]),
-            glm::vec4(cov[1][2], cov[2][2], 0.0f, 0.0f)
+            glm::vec4(cov[0][0], cov[1][0], cov[2][0], cov[1][1]),
+            glm::vec4(cov[2][1], cov[2][2], 0.0f, 0.0f)
         });
     }
 
-    // SSBO for gaussian data
+    //Buffer for the gaussian splat data
     glGenBuffers(1, &buffers.ssbo);
     glBindBuffer(GL_SHADER_STORAGE_BUFFER, buffers.ssbo);
     glBufferData(GL_SHADER_STORAGE_BUFFER,
-                 gpuSplats.size() * sizeof(GPUGaussian),
-                 gpuSplats.data(),
-                 GL_STATIC_DRAW);
-
+                buffers.gpuSplats.size() * sizeof(GPUGaussian),
+                buffers.gpuSplats.data(),
+                GL_STATIC_DRAW);
     glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, buffers.ssbo);
-
     glBindBuffer(GL_SHADER_STORAGE_BUFFER, 0);
-
 
     return buffers;
 }
@@ -82,6 +77,7 @@ void sortGaussiansBackToFront(GaussianBuffers& buffers, const glm::mat4& view)
     }
 
     std::sort(zIndex.begin(), zIndex.end()); // sorts plain floats — very fast
+    // [](const auto& a, const auto& b) { return a.first < b.first; });
 
     // Reorder (or just use indices directly in rendering)
     std::vector<GPUGaussian> sorted(n);

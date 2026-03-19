@@ -161,8 +161,8 @@ public:
             g.rotation = glm::normalize( 
                 glm::vec4(
                     readFloat(point, rot0_offset),
-                    readFloat(point, rot1_offset),
-                    readFloat(point, rot2_offset),
+                    -readFloat(point, rot1_offset),
+                    -readFloat(point, rot2_offset),
                     readFloat(point, rot3_offset)
                 )
             );

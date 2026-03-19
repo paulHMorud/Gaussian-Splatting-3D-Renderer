@@ -24,15 +24,17 @@ void main()
                 vConic.z * vCoord.y * vCoord.y)
         -       vConic.y * vCoord.x * vCoord.y;
 
+
     if (power > 0.0) {
         discard;
     }
 
-    float alpha = min(0.99, vOpacity * exp(power));
-
+    float alpha = 1.0*min(0.99, vOpacity * exp(power));
+    // FragColor = vec4(alpha, alpha, alpha, 1.0f);
+    // return;
     if (alpha < (1.0 / 255.0)) {
         discard;
     }
-
+    
     FragColor = vec4(vColor, alpha);
 }

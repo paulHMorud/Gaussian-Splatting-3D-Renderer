@@ -9,6 +9,7 @@ uniform mat4 projectionMatrix;
 uniform vec2 tanHalfFov;
 uniform float focalLength;
 
+
 struct GPUGaussian {
     vec4 position_opacity; // xyz + activated opacity
     vec4 color_pad;        // rgb + pad
@@ -39,17 +40,15 @@ mat3 unpackCov3D(GPUGaussian g)
     float zz = g.cov3d_1.y;
 
     return mat3(
-        xx, xy, xz,
-        xy, yy, yz,
-        xz, yz, zz
+        vec3(xx, xy, xz),
+        vec3(xy, yy, yz),
+        vec3(xz, yz, zz)
     );
 }
 
 vec3 projectCovarianceToScreen(vec3 meanWS, mat3 cov3D)
 {
     vec3 t = (viewMatrix * vec4(meanWS, 1.0)).xyz;
-
-    // OpenGL-style camera: points in front usually have negative z
     float depth = -t.z;
 
     if (depth <= 1e-6) {
@@ -66,18 +65,18 @@ vec3 projectCovarianceToScreen(vec3 meanWS, mat3 cov3D)
     t.y = clamp(ty, -limY, limY) * depth;
 
     mat3 J = mat3(
-        focalLength / depth, 0.0,                   -(focalLength * t.x) / (depth * depth),
-        0.0,                 focalLength / depth,   -(focalLength * t.y) / (depth * depth),
-        0.0,                 0.0,                    0.0
+        focalLength / depth, 0.0, -(focalLength * t.x) / (depth * depth),
+        0.0, focalLength / depth, -(focalLength * t.y) / (depth * depth),
+        0.0, 0.0, 0.0
     );
 
-    mat3 W = transpose(mat3(viewMatrix));
-    mat3 T = W * J;
+    mat3 R = mat3(viewMatrix);
+    mat3 T = J * R;
+    mat3 cov = T * cov3D * transpose(T);
 
-    mat3 cov = transpose(T) * transpose(cov3D) * T;
-
-    return vec3(cov[0][0], cov[0][1], cov[1][1]);
+    return vec3(cov[0][0], cov[1][0], cov[1][1]);
 }
+
 
 void main()
 {
@@ -125,7 +124,7 @@ void main()
 
     // valgfri AA-skalering, tett på originalen
     float aaScale = sqrt(max(0.000025, detCov / det));
-    float opacityAA = opacity * aaScale;
+    float opacityAA = opacity   * aaScale;
 
     float invDet = 1.0 / det;
     vConic = vec3(
@@ -134,31 +133,50 @@ void main()
         cov2D.x * invDet
     );
 
+//     vConic = vec3(
+//     1.0 / cov2D.x,
+//     0.0,
+//     1.0 / cov2D.z
+// );
+
     // bruk egenverdier til radius, ikke diagonalen direkte
     // float mid = 0.5 * (cov2D.x + cov2D.z);
-    // float radiusTerm = max(0.1, mid * mid - det);
-    // float lambda1 = mid + sqrt(radiusTerm);
-    // float lambda2 = mid - sqrt(radiusTerm);
+    // float disc = max(1e-8, mid * mid - det);
+    // float lambda1 = mid + sqrt(disc);
+    // float lambda2 = mid - sqrt(disc);
 
-    // float radius = 3.0*sqrt(max(lambda1, lambda2));
-
-    // float depth = positionCS.z;
-    // debugRadius = abs(depth);
-
-    // vec2 quadPixels = vec2(radius, radius);
+    // vec2 quadPixels = 3.0 * vec2(sqrt(max(lambda1, 1e-8)),
+    //                             sqrt(max(lambda2, 1e-8)));
 
         vec2 quadPixels = vec2(
         3.0 * sqrt(max(cov2D.x, 1e-8)),
         3.0 * sqrt(max(cov2D.z, 1e-8))
     );
 
+    // if (quadPixels.x > 1024.0 || quadPixels.y > 1024.0) {
+    // gl_Position = vec4(2.0, 2.0, 2.0, 1.0);
+    // vOpacity = 0.0;
+    // return;
+// }
+
+    // float htany = tan(radians(60.0) / 2.0);
+    // float htanx = htany * (1920.0 / 1080.0);
+    // float focal = 1080.0 / (2.0 * htany);
+
+    // vec2 hardcodedTanHalfFov = vec2(htanx, htany);
+    // vec2 viewportScale = 2.0 * hardcodedTanHalfFov * focal;
+    // vec2 quadNDC = quadPixels / viewportScale * 2.0;
+
     vec2 viewportScale = 2.0 * tanHalfFov * focalLength;
     vec2 quadNDC = quadPixels / viewportScale * 2.0;
 
+    // vec4 clip = projectionMatrix * positionCS;
+    // clip.xyz /= clip.w;
+    // clip.w = 1.0;
+    // clip.xy += quadVertex * quadNDC;
+
     vec4 clip = projectionMatrix * positionCS;
-    clip.xyz /= clip.w;
-    clip.w = 1.0;
-    clip.xy += quadVertex * quadNDC;
+    clip.xy += quadVertex * quadNDC * clip.w;
 
     gl_Position = clip;
 

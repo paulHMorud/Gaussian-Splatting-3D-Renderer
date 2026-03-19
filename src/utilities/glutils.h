@@ -32,8 +32,8 @@ static float sigmoid(float x) {
 
 static glm::mat3 quatToMat3(const glm::vec4& q) {
     float r = q.x;
-    float x = -q.y;
-    float y = -q.z;
+    float x = q.y;
+    float y = q.z;
     float z = q.w;
 
     return glm::mat3(

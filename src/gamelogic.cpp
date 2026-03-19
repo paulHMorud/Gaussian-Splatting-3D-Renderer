@@ -46,7 +46,7 @@ GLuint tanHalfFovLocation;
 GLuint focalLengthLocation;
 
 unsigned int counter = 0;
-float fieldOfView = 90.0f;
+float fieldOfView = 60.0f;
 
 
 // Forward keyboard events to camera
@@ -55,7 +55,7 @@ static void keyCallback(GLFWwindow* window, int key, int scancode, int action, i
     if (glfwGetKey(window, GLFW_KEY_ESCAPE) == GLFW_PRESS)
     {
         glfwSetWindowShouldClose(window, GL_TRUE);
-        free(loader);
+        delete loader;
     }
 
     camera->handleKeyboardInputs(key, action);
@@ -78,10 +78,11 @@ void initGame(GLFWwindow* window, CommandLineOptions options)
         camera->handleCursorPosInput(xpos, ypos);
     });
 
-    glEnable(GL_DEPTH_TEST);
-    // glDisable(GL_DEPTH_TEST);
+    // glEnable(GL_DEPTH_TEST);
+    glDisable(GL_DEPTH_TEST);
     // glDepthMask(GL_FALSE);
     glEnable(GL_BLEND);
+    glDepthMask(GL_FALSE);
     // glDisable(GL_BLEND);
     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 
@@ -91,7 +92,8 @@ void initGame(GLFWwindow* window, CommandLineOptions options)
 
     shader->activate();
 
-    loader = new GaussianLoader("../res/bb8.ply");
+    // loader = new GaussianLoader("../res/Scenes/Scenes/truck/point_cloud/iteration_30000/point_cloud.ply");
+    loader = new GaussianLoader("../res/bonsai_30000.ply");
 
     gaussianSplats = loader->getGaussianSplats();
 
@@ -110,14 +112,6 @@ void initGame(GLFWwindow* window, CommandLineOptions options)
     std::cout << "Scale x value: " << g.scale.x << std::endl;
     
     }
-    float minx=1e9, maxx=-1e9;
-    for (auto& g : gaussianSplats) {
-        minx = std::min(minx, g.position.x);
-        maxx = std::max(maxx, g.position.x);
-    }
-
-    std::cout << minx << " /// " << maxx << std::endl;
-
 
     viewLocation = glGetUniformLocation(shader->get(), "viewMatrix");
     projLocation = glGetUniformLocation(shader->get(), "projectionMatrix");
@@ -165,9 +159,8 @@ void renderFrame(GLFWwindow* window)
     glUniform2f(tanHalfFovLocation, tanHalfX, tanHalfY);
     glUniform1f(focalLengthLocation, focal);
 
-    
 
-    if (counter++ % 10 == 1) {
+    if (counter++ % 1 == 0) {
         sortGaussiansBackToFront(gaussianBuffers, view);
         updateGaussianSSBO(gaussianBuffers);
     }
