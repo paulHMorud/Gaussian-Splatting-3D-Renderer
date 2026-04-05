@@ -4,37 +4,30 @@ in vec3 vColor;
 in float vOpacity;
 in vec3 vConic;
 in vec2 vCoord;
-
 flat in int fragIsPointCloud;
-
-in float debugRadius;
 
 out vec4 FragColor;
 
 void main()
 {
-    // FragColor = vec4(vColor, 1.0);
-    // return;
     if (fragIsPointCloud > 0) {
         FragColor = vec4(vColor, 1.0);
         return;
     }
-    float power =
-        -0.5 * (vConic.x * vCoord.x * vCoord.x +
-                vConic.z * vCoord.y * vCoord.y)
-        -       vConic.y * vCoord.x * vCoord.y;
 
+    float power = -0.5 * (vConic.x * vCoord.x * vCoord.x +
+                          2.0 * vConic.y * vCoord.x * vCoord.y +
+                          vConic.z * vCoord.y * vCoord.y);
 
     if (power > 0.0) {
         discard;
     }
 
-    float alpha = 1.0*min(0.99, vOpacity * exp(power));
-    // FragColor = vec4(alpha, alpha, alpha, 1.0f);
-    // return;
+    float alpha = min(1.0f, vOpacity * exp(power));
+
     if (alpha < (1.0 / 255.0)) {
         discard;
     }
-    
+
     FragColor = vec4(vColor, alpha);
 }

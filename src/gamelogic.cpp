@@ -92,8 +92,8 @@ void initGame(GLFWwindow* window, CommandLineOptions options)
 
     shader->activate();
 
-    // loader = new GaussianLoader("../res/Scenes/Scenes/truck/point_cloud/iteration_30000/point_cloud.ply");
-    loader = new GaussianLoader("../res/bonsai_30000.ply");
+    loader = new GaussianLoader("../res/Scenes/Scenes/truck/point_cloud/iteration_30000/point_cloud.ply");
+    // loader = new GaussianLoader("../res/bonsai_30000.ply");
 
     gaussianSplats = loader->getGaussianSplats();
 
@@ -104,14 +104,14 @@ void initGame(GLFWwindow* window, CommandLineOptions options)
     // Setting up VBO and EBO for quads and sending the gaussian splat data to shader
     gaussianBuffers = generateGaussianBuffer(gaussianSplats);
 
-    for (int i = 0; i < 10; i++) {
-    auto& g = gaussianSplats[i];
-    std::cout << g.position.x << " "
-              << g.position.y << " "
-              << g.position.z << std::endl;
-    std::cout << "Scale x value: " << g.scale.x << std::endl;
+    // for (int i = 0; i < 10; i++) {
+    // auto& g = gaussianSplats[i];
+    // std::cout << g.position.x << " "
+    //           << g.position.y << " "
+    //           << g.position.z << std::endl;
+    // std::cout << "Scale x value: " << g.scale.x << std::endl;
     
-    }
+    // }
 
     viewLocation = glGetUniformLocation(shader->get(), "viewMatrix");
     projLocation = glGetUniformLocation(shader->get(), "projectionMatrix");
@@ -119,6 +119,9 @@ void initGame(GLFWwindow* window, CommandLineOptions options)
     tanHalfFovLocation = glGetUniformLocation(shader->get(), "tanHalfFov");
     focalLengthLocation = glGetUniformLocation(shader->get(), "focalLength");
     
+
+
+    static_assert(sizeof(GPUGaussian) == 64, "GPUGaussian must be 64 bytes");
 }
 
 
@@ -131,7 +134,21 @@ void renderPointCloud(size_t splatCount) {
 
 }
 
+#define DEBUG_PRINT_AND_TURN_180 1
+// Set to 0 to disable all of this quickly.
 
+static void printMat4(const char* name, const glm::mat4& m)
+{
+    std::cout << name << " =\n";
+    for (int r = 0; r < 4; ++r) {
+        std::cout
+            << m[0][r] << "  "
+            << m[1][r] << "  "
+            << m[2][r] << "  "
+            << m[3][r] << "\n";
+    }
+    std::cout << std::endl;
+}
 
 void renderFrame(GLFWwindow* window)
 {
@@ -141,13 +158,44 @@ void renderFrame(GLFWwindow* window)
 
     int windowWidth, windowHeight; 
     glfwGetWindowSize(window, &windowWidth, &windowHeight);
+    // Values are correct
+    // std::cout << "Height: " << windowHeight << "  Width: " << windowWidth << std::endl; 
 
     glm::mat4 view = camera->getViewMatrix();
     glm::mat4 projection =
         glm::perspective(glm::radians(fieldOfView),
         float(windowWidth) / float(windowHeight),
         0.1f,
-        500.f);
+        200.f);
+
+#if DEBUG_PRINT_AND_TURN_180
+    // Frame 0: print the normal matrices.
+    // Frame 1: force a 180-degree yaw turn, print again, then exit.
+    static int debugFrame = 0;
+
+    if (debugFrame == 0) {
+        std::cout << "\n=== DEBUG FRAME 0: ORIGINAL VIEW ===\n";
+        printMat4("view", view);
+        printMat4("projection", projection);
+    }
+    else if (debugFrame == 1) {
+        glm::mat4 turn180 = glm::rotate(
+            glm::mat4(1.0f),
+            glm::radians(180.0f),
+            glm::vec3(0.0f, 1.0f, 0.0f)
+        );
+
+        view = turn180 * view;
+
+        std::cout << "\n=== DEBUG FRAME 1: VIEW AFTER FORCED 180 DEGREE TURN ===\n";
+        printMat4("view", view);
+        printMat4("projection", projection);
+
+        glfwSetWindowShouldClose(window, GL_TRUE);
+    }
+
+    debugFrame++;
+#endif
 
 
     float tanHalfY = tanf(glm::radians(fieldOfView) * 0.5f);
@@ -174,5 +222,6 @@ void renderFrame(GLFWwindow* window)
     glUniform1i(isPointCloudLocation, 0);
 
     // renderPointCloud(gaussianSplats.size());
-    glDrawArraysInstanced(GL_TRIANGLE_FAN, 0, 4, static_cast<GLsizei>(gaussianSplats.size()));
+    // glDrawArraysInstanced(GL_TRIANGLE_FAN, 0, 4, static_cast<GLsizei>(gaussianSplats.size()));
+    glDrawArraysInstanced(GL_TRIANGLES, 0, 6, static_cast<GLsizei>(gaussianSplats.size()));
 }

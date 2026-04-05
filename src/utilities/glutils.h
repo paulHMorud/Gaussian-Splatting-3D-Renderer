@@ -41,7 +41,10 @@ static glm::mat3 quatToMat3(const glm::vec4& q) {
         2.0f * (x * y + r * z),       1.0f - 2.0f * (x * x + z * z), 2.0f * (y * z - r * x),
         2.0f * (x * z - r * y),       2.0f * (y * z + r * x),       1.0f - 2.0f * (x * x + y * y)
     );
+
 }
+
+
 
 static glm::mat3 computeCov3D(const glm::vec4& rotation, const glm::vec3& s) {
     glm::mat3 S(

@@ -26,8 +26,6 @@ out float vOpacity;
 out vec3 vConic;
 out vec2 vCoord;
 
-out float debugRadius;
-
 flat out int fragIsPointCloud;
 
 mat3 unpackCov3D(GPUGaussian g)
@@ -46,35 +44,40 @@ mat3 unpackCov3D(GPUGaussian g)
     );
 }
 
-vec3 projectCovarianceToScreen(vec3 meanWS, mat3 cov3D)
+// Returns 2D covariance
+// Changed this func to an almost copy of the function cov2d() from https://github.com/LytixDev/3d-gaussian-splatting-renderer/blob/main/res/shaders/gaussian.vert 
+// This in the debugging stage as I cant find out why my program is not working. 
+vec3 projectCovarianceToScreen(vec4 meanCS, mat3 cov3D)
 {
-    vec3 t = (viewMatrix * vec4(meanWS, 1.0)).xyz;
-    float depth = -t.z;
-
-    if (depth <= 1e-6) {
-        return vec3(-1.0, 0.0, -1.0);
-    }
+    // vec4 t4 = viewMatrix * vec4(meanCS, 1.0);
+    // vec3 t = t4.xyz;
+    vec4 t = meanCS; // Test
 
     float limX = 1.3 * tanHalfFov.x;
     float limY = 1.3 * tanHalfFov.y;
 
-    float tx = t.x / depth;
-    float ty = t.y / depth;
+    float txtz = t.x / t.z;
+    float tytz = t.y / t.z;
 
-    t.x = clamp(tx, -limX, limX) * depth;
-    t.y = clamp(ty, -limY, limY) * depth;
+    t.x = clamp(txtz, -limX, limX) * t.z;
+    t.y = clamp(tytz, -limY, limY) * t.z;
 
     mat3 J = mat3(
-        focalLength / depth, 0.0, -(focalLength * t.x) / (depth * depth),
-        0.0, focalLength / depth, -(focalLength * t.y) / (depth * depth),
+        focalLength / t.z, 0.0, -(focalLength * t.x) / (t.z * t.z),
+        0.0, focalLength / t.z, -(focalLength * t.y) / (t.z * t.z),
         0.0, 0.0, 0.0
     );
 
-    mat3 R = mat3(viewMatrix);
-    mat3 T = J * R;
-    mat3 cov = T * cov3D * transpose(T);
+    mat3 W = transpose(mat3(viewMatrix));
+    mat3 T = W * J;
 
-    return vec3(cov[0][0], cov[1][0], cov[1][1]);
+    mat3 cov = transpose(T) * transpose(cov3D) * T;
+
+    // Applying low pass filter
+    cov[0][0] += 0.3f;
+	cov[1][1] += 0.3f;
+
+    return vec3(cov[0][0], cov[0][1], cov[1][1]);
 }
 
 
@@ -82,7 +85,7 @@ void main()
 {
     GPUGaussian g = splats[gl_InstanceID];
 
-    vec3 positionWS = g.position_opacity.xyz;
+    vec3 positionWS = g.position_opacity.xyz; // World space
     float opacity = g.position_opacity.w;
     vec3 color = g.color_pad.xyz;
 
@@ -100,31 +103,32 @@ void main()
         return;
     }
 
-    vec4 positionCS = viewMatrix * vec4(positionWS, 1.0);
+    vec4 positionCS = viewMatrix * vec4(positionWS, 1.0); //Camers space
     mat3 cov3D = unpackCov3D(g);
-    vec3 cov2D = projectCovarianceToScreen(positionWS, cov3D);
 
-    // slik originalen gjør det: først determinant uten low-pass
-    float detCov = cov2D.x * cov2D.z - cov2D.y * cov2D.y;
-
-    // // så low-pass
-    cov2D.x += 0.3;
-    cov2D.z += 0.3;
-
-    float det = cov2D.x * cov2D.z - cov2D.y * cov2D.y;
-
-    if (det <= 1e-8 || cov2D.x <= 0.0 || cov2D.z <= 0.0) {
-        gl_Position = vec4(2.0, 2.0, 2.0, 1.0);
-        vColor = vec3(0.0);
+    if (positionCS.z > -0.1) {
+        gl_Position = vec4(2.0);
         vOpacity = 0.0;
-        vConic = vec3(1.0, 0.0, 1.0);
-        vCoord = vec2(0.0);
         return;
     }
 
-    // valgfri AA-skalering, tett på originalen
-    float aaScale = sqrt(max(0.000025, detCov / det));
-    float opacityAA = opacity   * aaScale;
+    vec3 cov2D = projectCovarianceToScreen(positionCS, cov3D);
+
+    // Apply low-pass filter exactly once.
+    // cov2D.x += 0.3;
+    // cov2D.z += 0.3;
+
+
+    float det = cov2D.x * cov2D.z - cov2D.y * cov2D.y;
+
+    // if (det <= 1e-8 || cov2D.x <= 0.0 || cov2D.z <= 0.0) {
+    //     gl_Position = vec4(2.0, 2.0, 2.0, 1.0);
+    //     vColor = vec3(0.0);
+    //     vOpacity = 0.0;
+    //     vConic = vec3(1.0, 0.0, 1.0);
+    //     vCoord = vec2(0.0);
+    //     return;
+    // }
 
     float invDet = 1.0 / det;
     vConic = vec3(
@@ -133,54 +137,32 @@ void main()
         cov2D.x * invDet
     );
 
-//     vConic = vec3(
-//     1.0 / cov2D.x,
-//     0.0,
-//     1.0 / cov2D.z
-// );
 
-    // bruk egenverdier til radius, ikke diagonalen direkte
-    // float mid = 0.5 * (cov2D.x + cov2D.z);
-    // float disc = max(1e-8, mid * mid - det);
-    // float lambda1 = mid + sqrt(disc);
-    // float lambda2 = mid - sqrt(disc);
+    float mid = 0.5 * (cov2D.x + cov2D.z);
+    float disc = max(1e-8, mid * mid - det);
+    float lambda1 = mid + sqrt(disc);
+    float lambda2 = mid - sqrt(disc);
 
     // vec2 quadPixels = 3.0 * vec2(sqrt(max(lambda1, 1e-8)),
-    //                             sqrt(max(lambda2, 1e-8)));
+    //                              sqrt(max(lambda2, 1e-8)));
 
-        vec2 quadPixels = vec2(
-        3.0 * sqrt(max(cov2D.x, 1e-8)),
-        3.0 * sqrt(max(cov2D.z, 1e-8))
-    );
-
-    // if (quadPixels.x > 1024.0 || quadPixels.y > 1024.0) {
-    // gl_Position = vec4(2.0, 2.0, 2.0, 1.0);
-    // vOpacity = 0.0;
-    // return;
-// }
-
-    // float htany = tan(radians(60.0) / 2.0);
-    // float htanx = htany * (1920.0 / 1080.0);
-    // float focal = 1080.0 / (2.0 * htany);
-
-    // vec2 hardcodedTanHalfFov = vec2(htanx, htany);
-    // vec2 viewportScale = 2.0 * hardcodedTanHalfFov * focal;
-    // vec2 quadNDC = quadPixels / viewportScale * 2.0;
+    vec2 quadPixels = vec2(3.0 * sqrt(cov2D.x), 3.0 * sqrt(cov2D.z));
 
     vec2 viewportScale = 2.0 * tanHalfFov * focalLength;
     vec2 quadNDC = quadPixels / viewportScale * 2.0;
 
     // vec4 clip = projectionMatrix * positionCS;
-    // clip.xyz /= clip.w;
-    // clip.w = 1.0;
-    // clip.xy += quadVertex * quadNDC;
+    // clip.xy += quadVertex * quadNDC * clip.w;
+
+    // gl_Position = clip;
 
     vec4 clip = projectionMatrix * positionCS;
-    clip.xy += quadVertex * quadNDC * clip.w;
-
+    clip.xyz /= clip.w;
+    clip.w = 1.0;
+    clip.xy += quadVertex * quadNDC;
     gl_Position = clip;
 
     vColor = color;
-    vOpacity = opacityAA;
+    vOpacity = opacity;
     vCoord = quadVertex * quadPixels;
 }

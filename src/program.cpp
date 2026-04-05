@@ -19,21 +19,21 @@
 void runProgram(GLFWwindow* window, CommandLineOptions options)
 {
     // Enable depth (Z) buffer (accept "closest" fragment)
-    glEnable(GL_DEPTH_TEST);
-    glDepthFunc(GL_LESS);
+    // glEnable(GL_DEPTH_TEST);
+    // glDepthFunc(GL_LESS);
 
-    // Configure miscellaneous OpenGL settings
-    glEnable(GL_CULL_FACE);
+    // // Configure miscellaneous OpenGL settings
+    // glEnable(GL_CULL_FACE);
 
-    // Disable built-in dithering
-    glDisable(GL_DITHER);
+    // // Disable built-in dithering
+    // glDisable(GL_DITHER);
 
-    // Enable transparency
-    glEnable(GL_BLEND);
-    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+    // // Enable transparency
+    // glEnable(GL_BLEND);
+    // glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 
     // Set default colour after clearing the colour buffer
-    glClearColor(0.3f, 0.5f, 0.8f, 1.0f);
+    glClearColor(0.5f, 0.5f, 0.5f, 1.0f);
 
 	initGame(window, options);
 
