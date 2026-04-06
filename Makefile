@@ -1,5 +1,5 @@
 SOURCES := $(shell find src/ -type f | grep -E '\.(h|c)(pp)?$$')
-MAKE_OPTS := -j4
+MAKE_OPTS := -j2
 GDB_OPTS := -ex "set style enabled on"
 
 .PHONY: help
@@ -15,6 +15,9 @@ run-with-music: build
 run-debug: build-debug | has-gdb
 	cd build-debug && gdb -batch $(GDB_OPTS) -ex "run" -ex "backtrace" ./glowbox
 
+
+
+
 .PHONY: build
 build: build/glowbox
 build/glowbox: ${SOURCES} | build/Makefile has-make
@@ -28,6 +31,20 @@ build-debug/glowbox: ${SOURCES} | build-debug/Makefile has-make
 	make -C build-debug $(MAKE_OPTS)
 build-debug/Makefile: | build-debug/ _submodules has-cmake
 	cd build-debug && cmake -DCMAKE_BUILD_TYPE=Debug ..
+
+
+.PHONY: build-prof run-prof
+
+run-prof: build-prof
+	cd build-prof && ./glowbox
+
+build-prof: build-prof/glowbox
+build-prof/glowbox: ${SOURCES} | build-prof/Makefile has-make
+	make -C build-prof $(MAKE_OPTS)
+
+build-prof/Makefile: | build-prof/ _submodules has-cmake
+	cd build-prof && cmake -DCMAKE_BUILD_TYPE=RelWithDebInfo ..
+
 
 .PHONY: _submodules
 _submodules: | has-git
