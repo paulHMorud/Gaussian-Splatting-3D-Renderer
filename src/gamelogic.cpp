@@ -86,14 +86,17 @@ void initGame(GLFWwindow* window, CommandLineOptions options)
     // glDisable(GL_BLEND);
     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 
+    
+    glEnable(GL_CULL_FACE); //Shouldnt really affect anything because of the quads
+
     shader = new Gloom::Shader();
     shader->makeBasicShader("../res/shaders/gaussian.vert",
                             "../res/shaders/gaussian.frag");
 
     shader->activate();
 
-    loader = new GaussianLoader("../res/Scenes/Scenes/truck/point_cloud/iteration_30000/point_cloud.ply");
-    // loader = new GaussianLoader("../res/bonsai_30000.ply");
+    // loader = new GaussianLoader("../res/Scenes/Scenes/truck/point_cloud/iteration_30000/point_cloud.ply");
+    loader = new GaussianLoader("../res/bonsai_30000.ply");
 
     gaussianSplats = loader->getGaussianSplats();
 
@@ -134,7 +137,7 @@ void renderPointCloud(size_t splatCount) {
 
 }
 
-#define DEBUG_PRINT_AND_TURN_180 1
+#define DEBUG_PRINT_AND_TURN_180 0
 // Set to 0 to disable all of this quickly.
 
 static void printMat4(const char* name, const glm::mat4& m)
