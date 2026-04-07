@@ -7,11 +7,10 @@ help:
 	@echo -e "Try one of these make targets:\n"
 	@grep "^\.PHONY: " Makefile | cut -d" " -f2- | tr -s " " | sed -e "s/ /\n/g" | grep -v "^_" | sed -e "s/^/make /"
 
-.PHONY: run run-with-music run-debug
+.PHONY: run-debug
 run: build
 	cd build && ./glowbox
-run-with-music: build
-	cd build && ./glowbox --enable-music
+
 run-debug: build-debug | has-gdb
 	cd build-debug && gdb -batch $(GDB_OPTS) -ex "run" -ex "backtrace" ./glowbox
 

@@ -4,7 +4,7 @@ A real-time 3D Gaussian Splatting renderer built in C++ and OpenGL. This project
 
 Built as part of the NTNU course **TDT4230 – Graphics and Visualization**, extending the [TDT4230 base framework](https://github.com/bartvbl/TDT4230-Assignment-1).
 
----
+
 
 ## Features
 
@@ -15,7 +15,6 @@ Built as part of the NTNU course **TDT4230 – Graphics and Visualization**, ext
 	- Q, E for moving up and down
 	- Left click on mouse and drag to rotate camera
 
----
 
 ## Requirements
 
