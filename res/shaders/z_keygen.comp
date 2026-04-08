@@ -7,20 +7,20 @@ layout(local_size_x = 256) in;
 uniform mat4  uView;
 uniform mat4  uProjection;
 uniform uint  uNumElements;
-uniform float uCullMargin;   // world-space radius margin, e.g. 1.0
+uniform float uCullMargin;
 
+// Must match the C++ GPUGaussian layout exactly (240 bytes std430).
 struct GPUGaussian {
     vec4 position_opacity;
-    vec4 color_pad;
     vec4 cov3d_0;
     vec4 cov3d_1;
+    vec4 sh[12];
 };
 
 layout(std430, binding = 0) readonly buffer SplatBuffer {
     GPUGaussian splats[];
 };
 
-// Compacted output — only visible splats are written
 layout(std430, binding = 2) writeonly buffer KeysOut {
     uint keys[];
 };
@@ -28,7 +28,6 @@ layout(std430, binding = 4) writeonly buffer ValuesOut {
     int values[];
 };
 
-// Atomic counter — how many splats passed culling this frame
 layout(std430, binding = 8) buffer VisibleCount {
     uint visibleCount;
 };
@@ -40,21 +39,17 @@ uint floatToSortKey(float f)
     return u ^ mask;
 }
 
-// Returns true if the point (with a small margin) is inside all 6 frustum planes.
-// We test in clip space — fast and projection-agnostic.
 bool inFrustum(vec3 posWS)
 {
     vec4 clip = uProjection * uView * vec4(posWS, 1.0);
-
-    // Homogeneous frustum test with margin in NDC
-    float m = uCullMargin * clip.w;   // scales margin to clip space
+    float m = uCullMargin * clip.w;
 
     return clip.x >= -clip.w - m &&
            clip.x <=  clip.w + m &&
            clip.y >= -clip.w - m &&
            clip.y <=  clip.w + m &&
-           clip.z >= -clip.w      &&   // near plane — no margin (avoid behind-camera splats)
-           clip.w > 0.0;               // behind camera
+           clip.z >= -clip.w      &&
+           clip.w > 0.0;
 }
 
 void main()
@@ -65,12 +60,9 @@ void main()
     vec3 posWS  = splats[gid].position_opacity.xyz;
     float opacity = splats[gid].position_opacity.w;
 
-    // Skip fully transparent splats here too — saves sort + render work
-    if (opacity < 0.004) return;  // ~sigmoid(-5.5), effectively invisible
-
+    if (opacity < 0.004) return;
     if (!inFrustum(posWS)) return;
 
-    // Atomically claim a slot in the compacted output
     uint slot = atomicAdd(visibleCount, 1u);
 
     float z = uView[0][2]*posWS.x + uView[1][2]*posWS.y + uView[2][2]*posWS.z + uView[3][2];

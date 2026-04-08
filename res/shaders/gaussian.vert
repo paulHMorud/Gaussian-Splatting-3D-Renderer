@@ -1,23 +1,24 @@
 #version 430 core
-// This entire shader is based on the rasterizer from the original gaussian splatting paper "3D Gaussian Splatting for Real-Time Radiance Field Rendering"
-// The original code can be found here: https://github.com/graphdeco-inria/diff-gaussian-rasterization/blob/main/cuda_rasterizer 
-// Majority of calculations for this shader came from the forward.cu file
+// 3D Gaussian Splatting vertex shader with view-dependent color via spherical harmonics.
 
 layout(location = 0) in vec2 quadVertex;
 
-uniform bool isPointCloud;
-
-uniform mat4 viewMatrix;
-uniform mat4 projectionMatrix;
-uniform vec2 tanHalfFov;
+uniform bool  isPointCloud;
+uniform mat4  viewMatrix;
+uniform mat4  projectionMatrix;
+uniform vec2  tanHalfFov;
 uniform float focalLength;
+
+// SH controls
+uniform int  uShDegree;   // 0 = DC only (flat color), 1/2/3 = use bands up to that degree
+uniform vec3 uCameraPos;  // camera position in the renderer's (flipped) world space
 
 
 struct GPUGaussian {
-    vec4 position_opacity; // xyz + activated opacity
-    vec4 color_pad;        // rgb + pad
-    vec4 cov3d_0;          // xx, xy, xz, yy
-    vec4 cov3d_1;          // yz, zz, pad, pad
+    vec4 position_opacity;
+    vec4 cov3d_0;
+    vec4 cov3d_1;
+    vec4 sh[12]; // 48 floats: 16 RGB triplets, coefficient-major
 };
 
 layout(std430, binding = 0) readonly buffer GaussianBuffer {
@@ -27,12 +28,80 @@ layout(std430, binding = 1) readonly buffer IndexBuffer {
     int sortedIndices[];
 };
 
-out vec3 vColor;
+out vec3  vColor;
 out float vOpacity;
-out vec3 vConic;
-out vec2 vCoord;
-
+out vec3  vConic;
+out vec2  vCoord;
 flat out int fragIsPointCloud;
+
+
+// ---------- SH helpers ------------------------------------------------------
+const float SH_C0 = 0.28209479177387814;
+const float SH_C1 = 0.4886025119029199;
+const float SH_C2_0 =  1.0925484305920792;
+const float SH_C2_1 = -1.0925484305920792;
+const float SH_C2_2 =  0.31539156525252005;
+const float SH_C2_3 = -1.0925484305920792;
+const float SH_C2_4 =  0.5462742152960396;
+const float SH_C3_0 = -0.5900435899266435;
+const float SH_C3_1 =  2.890611442640554;
+const float SH_C3_2 = -0.4570457994644658;
+const float SH_C3_3 =  0.3731763325901154;
+const float SH_C3_4 = -0.4570457994644658;
+const float SH_C3_5 =  1.445305721320277;
+const float SH_C3_6 = -0.5900435899266435;
+
+// Returns RGB triplet for SH coefficient index c (0..15)
+vec3 shCoeff(GPUGaussian g, int c)
+{
+    int base = 3 * c;          // float index in flat array
+    int v0 = base >> 2;        // which vec4
+    int o0 = base & 3;         // offset within that vec4
+    // Read three consecutive floats; they may straddle a vec4 boundary.
+    float f0 = g.sh[v0][o0];
+    int idx1 = base + 1;
+    int idx2 = base + 2;
+    float f1 = g.sh[idx1 >> 2][idx1 & 3];
+    float f2 = g.sh[idx2 >> 2][idx2 & 3];
+    return vec3(f0, f1, f2);
+}
+
+vec3 evalSH(GPUGaussian g, vec3 dir, int degree)
+{
+    vec3 result = SH_C0 * shCoeff(g, 0);
+
+    if (degree >= 1) {
+        float x = dir.x, y = dir.y, z = dir.z;
+        result += -SH_C1 * y * shCoeff(g, 1)
+                +  SH_C1 * z * shCoeff(g, 2)
+                + -SH_C1 * x * shCoeff(g, 3);
+
+        if (degree >= 2) {
+            float xx = x*x, yy = y*y, zz = z*z;
+            float xy = x*y, yz = y*z, xz = x*z;
+            result += SH_C2_0 * xy            * shCoeff(g, 4)
+                   +  SH_C2_1 * yz            * shCoeff(g, 5)
+                   +  SH_C2_2 * (2.0*zz - xx - yy) * shCoeff(g, 6)
+                   +  SH_C2_3 * xz            * shCoeff(g, 7)
+                   +  SH_C2_4 * (xx - yy)     * shCoeff(g, 8);
+
+            if (degree >= 3) {
+                result += SH_C3_0 * y * (3.0*xx - yy)        * shCoeff(g,  9)
+                       +  SH_C3_1 * xy * z                    * shCoeff(g, 10)
+                       +  SH_C3_2 * y * (4.0*zz - xx - yy)    * shCoeff(g, 11)
+                       +  SH_C3_3 * z * (2.0*zz - 3.0*xx - 3.0*yy) * shCoeff(g, 12)
+                       +  SH_C3_4 * x * (4.0*zz - xx - yy)    * shCoeff(g, 13)
+                       +  SH_C3_5 * z * (xx - yy)             * shCoeff(g, 14)
+                       +  SH_C3_6 * x * (xx - 3.0*yy)         * shCoeff(g, 15);
+            }
+        }
+    }
+
+    // Convention from the original 3DGS code: SH represents (color - 0.5)
+    return max(result + 0.5, vec3(0.0));
+}
+// ---------------------------------------------------------------------------
+
 
 mat3 unpackCov3D(GPUGaussian g)
 {
@@ -50,14 +119,9 @@ mat3 unpackCov3D(GPUGaussian g)
     );
 }
 
-// Returns 2D covariance
-// Changed this func to an almost copy of the function cov2d() from https://github.com/LytixDev/3d-gaussian-splatting-renderer/blob/main/res/shaders/gaussian.vert 
-// This in the debugging stage as I cant find out why my program is not working. 
 vec3 projectCovarianceToScreen(vec4 meanCS, mat3 cov3D)
 {
-    // vec4 t4 = viewMatrix * vec4(meanWS, 1.0);
-    // vec3 t = t4.xyz;
-    vec4 t = meanCS; // Test
+    vec4 t = meanCS;
 
     float limX = 1.3 * tanHalfFov.x;
     float limY = 1.3 * tanHalfFov.y;
@@ -79,9 +143,8 @@ vec3 projectCovarianceToScreen(vec4 meanCS, mat3 cov3D)
 
     mat3 cov = transpose(T) * transpose(cov3D) * T;
 
-    // Applying low pass filter (The original paper applies it a bit later)
-    cov[0][0] += 0.3f;
-	cov[1][1] += 0.3f;
+    cov[0][0] += 0.3;
+    cov[1][1] += 0.3;
 
     return vec3(cov[0][0], cov[0][1], cov[1][1]);
 }
@@ -89,19 +152,22 @@ vec3 projectCovarianceToScreen(vec4 meanCS, mat3 cov3D)
 
 void main()
 {
-    // GPUGaussian g = splats[gl_InstanceID];
     GPUGaussian g = splats[sortedIndices[gl_InstanceID]];
 
-    vec3 positionWS = g.position_opacity.xyz; // World space
-    float opacity = g.position_opacity.w;
-    vec3 color = g.color_pad.xyz;
+    vec3 positionWS = g.position_opacity.xyz;
+    float opacity   = g.position_opacity.w;
 
-    // Almost no performance benefit. Before: ~5.5 FPS, After: ~5.7
-    if (opacity < 0.05) { 
-        gl_Position = vec4(2.0, 2.0, 2.0, 1.0);
-        vOpacity = 0.0;
-        return;
-    }
+    // ---- Compute view-dependent color via SH -----------------------------
+    // The PLY loader negates x and y to flip handedness, so the renderer's
+    // world space is mirrored relative to the space the SH was trained in.
+    // To evaluate SH correctly we negate x and y of the direction so it lives
+    // in the original training space.
+    // (If your colors look wrong front-to-back, try removing the negation.)
+    vec3 dirRender = normalize(positionWS - uCameraPos);
+    vec3 dirSH = vec3(-dirRender.x, -dirRender.y, dirRender.z);
+
+    vec3 color = evalSH(g, dirSH, clamp(uShDegree, 0, 3));
+    // ----------------------------------------------------------------------
 
     fragIsPointCloud = isPointCloud ? 1 : 0;
 
@@ -117,7 +183,7 @@ void main()
         return;
     }
 
-    vec4 positionCS = viewMatrix * vec4(positionWS, 1.0); //Camers space
+    vec4 positionCS = viewMatrix * vec4(positionWS, 1.0);
     mat3 cov3D = unpackCov3D(g);
 
     if (positionCS.z > -0.1) {
@@ -127,11 +193,6 @@ void main()
     }
 
     vec3 cov2D = projectCovarianceToScreen(positionCS, cov3D);
-
-    // Apply low-pass filter exactly once.
-    // cov2D.x += 0.3;
-    // cov2D.z += 0.3;
-
 
     float det = cov2D.x * cov2D.z - cov2D.y * cov2D.y;
 
@@ -151,37 +212,10 @@ void main()
         cov2D.x * invDet
     );
 
-
-    // float mid = 0.5 * (cov2D.x + cov2D.z);
-    // float disc = max(1e-8, mid * mid - det);
-    // float lambda1 = mid + sqrt(disc);
-    // float lambda2 = mid - sqrt(disc);
-
-    // vec2 quadPixels = 3.0 * vec2(sqrt(max(lambda1, 1e-8)),
-    //                              sqrt(max(lambda2, 1e-8)));
-
     vec2 quadPixels = vec2(3.0 * sqrt(cov2D.x), 3.0 * sqrt(cov2D.z));
-
-    // Before: ~5.8, After: 6.8
-    // Worked ok to boost performance at max size 128 but creates artifacts
-    // Setting it at 512 and it still helps performance a bit
-    // quadPixels = min(quadPixels, vec2(512.0)); // Did not boost performance enough
-
-
-    // Before: ~5.8, After: 5.5 Why would it slow down :(
-    // if (quadPixels.x < 1.0 && quadPixels.y < 1.0) {
-    //     gl_Position = vec4(2.0, 2.0, 2.0, 1.0);
-    //     vOpacity = 0.0;
-    //     return;
-    // }
 
     vec2 viewportScale = 2.0 * tanHalfFov * focalLength;
     vec2 quadNDC = quadPixels / viewportScale * 2.0;
-
-    // vec4 clip = projectionMatrix * positionCS;
-    // clip.xy += quadVertex * quadNDC * clip.w;
-
-    // gl_Position = clip;
 
     vec4 clip = projectionMatrix * positionCS;
     clip.xyz /= clip.w;

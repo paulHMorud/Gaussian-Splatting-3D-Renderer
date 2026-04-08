@@ -16,6 +16,7 @@ void renderDebugUI();
 
 extern Gloom::Camera* camera;
 
-extern bool gRenderAsPointCloud;
-extern int gSortEveryNFrames;
+extern bool  gRenderAsPointCloud;
+extern int   gSortEveryNFrames;
 extern float gCurrentFps;
+extern int   gShDegree;   // 0 = DC only, 3 = full spherical harmonics
