@@ -7,25 +7,24 @@
 #include <sstream>
 #include <iostream>
 #include <cassert>
-#include <cmath>
 
-#include <chrono>
+static constexpr uint32_t BLOCK_SIZE = 256;
+static constexpr uint32_t RADIX      = 256;
+static constexpr uint32_t NUM_PASSES = 4;
 
-// ---------------------------------------------------------------
-// Constants matching the compute shader
-// ---------------------------------------------------------------
-static constexpr uint32_t BLOCK_SIZE   = 256;
-static constexpr uint32_t RADIX        = 256;
-static constexpr uint32_t NUM_PASSES   = 4;   // 4 × 8 bits = 32 bits
+// Sub-pass IDs matching the shader
+static constexpr uint32_t SP_COUNT        = 0;
+static constexpr uint32_t SP_PFX_LOCAL    = 1;
+static constexpr uint32_t SP_PFX_GLOBAL   = 2;
+static constexpr uint32_t SP_APPLY_GLOBAL = 3;
+static constexpr uint32_t SP_SCATTER      = 4;
 
-// ---------------------------------------------------------------
-// Helpers
 // ---------------------------------------------------------------
 static std::string readFile(const char* path)
 {
     std::ifstream f(path);
     if (!f.is_open()) {
-        std::cerr << "[RadixSort] Cannot open shader: " << path << "\n";
+        std::cerr << "[RadixSort] Cannot open: " << path << "\n";
         return {};
     }
     std::ostringstream ss;
@@ -33,7 +32,7 @@ static std::string readFile(const char* path)
     return ss.str();
 }
 
-static GLuint compileCS(const char* path)
+static GLuint compileAndLink(const char* path)
 {
     std::string src = readFile(path);
     if (src.empty()) return 0;
@@ -46,132 +45,87 @@ static GLuint compileCS(const char* path)
     GLint ok = 0;
     glGetShaderiv(cs, GL_COMPILE_STATUS, &ok);
     if (!ok) {
-        char log[2048];
-        glGetShaderInfoLog(cs, sizeof(log), nullptr, log);
+        char log[2048]; glGetShaderInfoLog(cs, sizeof(log), nullptr, log);
         std::cerr << "[RadixSort] Compile error in " << path << ":\n" << log << "\n";
-        glDeleteShader(cs);
-        return 0;
+        glDeleteShader(cs); return 0;
     }
-    return cs;
-}
 
-static GLuint linkProgram(GLuint cs)
-{
     GLuint prog = glCreateProgram();
     glAttachShader(prog, cs);
     glLinkProgram(prog);
-    glDeleteShader(cs);   // shader object no longer needed after link
+    glDeleteShader(cs);
 
-    GLint ok = 0;
     glGetProgramiv(prog, GL_LINK_STATUS, &ok);
     if (!ok) {
-        char log[2048];
-        glGetProgramInfoLog(prog, sizeof(log), nullptr, log);
+        char log[2048]; glGetProgramInfoLog(prog, sizeof(log), nullptr, log);
         std::cerr << "[RadixSort] Link error:\n" << log << "\n";
-        glDeleteProgram(prog);
-        return 0;
+        glDeleteProgram(prog); return 0;
     }
     return prog;
 }
 
-static GLuint makeSSBO(size_t bytes, GLenum usage = GL_DYNAMIC_COPY)
+static GLuint makeSSBO(size_t bytes)
 {
     GLuint buf = 0;
     glGenBuffers(1, &buf);
     glBindBuffer(GL_SHADER_STORAGE_BUFFER, buf);
-    glBufferData(GL_SHADER_STORAGE_BUFFER, (GLsizeiptr)bytes, nullptr, usage);
+    glBufferData(GL_SHADER_STORAGE_BUFFER, (GLsizeiptr)bytes, nullptr, GL_DYNAMIC_COPY);
     glBindBuffer(GL_SHADER_STORAGE_BUFFER, 0);
     return buf;
 }
 
 // ---------------------------------------------------------------
-// RadixSort::init
-// ---------------------------------------------------------------
 void RadixSort::init(uint32_t maxElements)
 {
     mMaxElements = maxElements;
 
-    // ---- compile shaders ----
-    GLuint keygenCS = compileCS("../res/shaders/z_keygen.comp");
-    GLuint sortCS   = compileCS("../res/shaders/radix_sort.comp");
-
-    if (!keygenCS || !sortCS) {
-        std::cerr << "[RadixSort] Shader compilation failed — GPU sort disabled.\n";
-        return;
-    }
-
-    mKeyGenProgram = linkProgram(keygenCS);
-    mSortProgram   = linkProgram(sortCS);
-
+    mKeyGenProgram = compileAndLink("../res/shaders/z_keygen.comp");
+    mSortProgram   = compileAndLink("../res/shaders/radix_sort.comp");
     if (!mKeyGenProgram || !mSortProgram) return;
 
-    // ---- cache uniform locations ----
-    mKeyGenLocView    = glGetUniformLocation(mKeyGenProgram, "uView");
-    mKeyGenLocNumElem = glGetUniformLocation(mKeyGenProgram, "uNumElements");
+    mKG_View    = glGetUniformLocation(mKeyGenProgram, "uView");
+    mKG_NumElem = glGetUniformLocation(mKeyGenProgram, "uNumElements");
 
-    mLocPass    = glGetUniformLocation(mSortProgram, "uPass");
-    mLocSubPass = glGetUniformLocation(mSortProgram, "uSubPass");
-    mLocNumElem = glGetUniformLocation(mSortProgram, "uNumElements");
+    mS_Pass    = glGetUniformLocation(mSortProgram, "uPass");
+    mS_SubPass = glGetUniformLocation(mSortProgram, "uSubPass");
+    mS_NumElem = glGetUniformLocation(mSortProgram, "uNumElements");
+    mS_NumWG   = glGetUniformLocation(mSortProgram, "uNumWorkGroups");
 
-    // ---- allocate GPU buffers ----
-    size_t keyBytes   = (size_t)maxElements * sizeof(uint32_t);
-    size_t valBytes   = (size_t)maxElements * sizeof(int32_t);
-    uint32_t maxWG    = (maxElements + BLOCK_SIZE - 1) / BLOCK_SIZE;
-    size_t histBytes  = (size_t)RADIX * maxWG * sizeof(uint32_t);
+    const uint32_t maxWG = (maxElements + BLOCK_SIZE - 1) / BLOCK_SIZE;
 
-    mKeyA      = makeSSBO(keyBytes);
-    mKeyB      = makeSSBO(keyBytes);
-    mValueA    = makeSSBO(valBytes);
-    mValueB    = makeSSBO(valBytes);
-    mHistogram = makeSSBO(histBytes);
+    mKeyA      = makeSSBO((size_t)maxElements * sizeof(uint32_t));
+    mKeyB      = makeSSBO((size_t)maxElements * sizeof(uint32_t));
+    mValueA    = makeSSBO((size_t)maxElements * sizeof(int32_t));
+    mValueB    = makeSSBO((size_t)maxElements * sizeof(int32_t));
+    mHistogram = makeSSBO((size_t)RADIX * maxWG * sizeof(uint32_t));
+    mGlobalPfx = makeSSBO((size_t)RADIX * sizeof(uint32_t));
 
     mInitialized = true;
-    std::cout << "[RadixSort] Initialized for " << maxElements << " elements.\n";
+    std::cout << "[RadixSort] Initialized for " << maxElements
+              << " elements (" << maxWG << " workgroups).\n";
 }
 
 // ---------------------------------------------------------------
-// RadixSort::~RadixSort
-// ---------------------------------------------------------------
 RadixSort::~RadixSort()
 {
-    GLuint bufs[] = { mKeyA, mKeyB, mValueA, mValueB, mHistogram };
-    glDeleteBuffers(5, bufs);
+    GLuint bufs[] = { mKeyA, mKeyB, mValueA, mValueB, mHistogram, mGlobalPfx };
+    glDeleteBuffers(6, bufs);
     if (mSortProgram)   glDeleteProgram(mSortProgram);
     if (mKeyGenProgram) glDeleteProgram(mKeyGenProgram);
 }
 
 // ---------------------------------------------------------------
-// Internal dispatch helpers
-// ---------------------------------------------------------------
-void RadixSort::dispatchCount(uint32_t pass, uint32_t numElements, uint32_t numWG)
+GLuint RadixSort::sortedIndexBuffer() const
 {
-    glUniform1ui(mLocPass,    pass);
-    glUniform1ui(mLocSubPass, 0u);            // COUNT
-    glUniform1ui(mLocNumElem, numElements);
-    glDispatchCompute(numWG, 1, 1);
-    glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT);
+    // After NUM_PASSES=4 passes the ping-pong lands as follows:
+    // pass 0: src=A dst=B
+    // pass 1: src=B dst=A
+    // pass 2: src=A dst=B
+    // pass 3: src=B dst=A  ← final result in A (mValueA)
+    // So with 4 passes, result is always in mValueA.
+    return mResultInB ? mValueB : mValueA;
 }
 
-void RadixSort::dispatchPrefix(uint32_t pass, uint32_t numElements, uint32_t /*numWG*/)
-{
-    glUniform1ui(mLocPass,    pass);
-    glUniform1ui(mLocSubPass, 1u);            // PREFIX
-    glUniform1ui(mLocNumElem, numElements);
-    glDispatchCompute(1, 1, 1);               // single workgroup of 256 threads
-    glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT);
-}
-
-void RadixSort::dispatchScatter(uint32_t pass, uint32_t numElements, uint32_t numWG)
-{
-    glUniform1ui(mLocPass,    pass);
-    glUniform1ui(mLocSubPass, 2u);            // SCATTER
-    glUniform1ui(mLocNumElem, numElements);
-    glDispatchCompute(numWG, 1, 1);
-    glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT);
-}
-
-// ---------------------------------------------------------------
-// RadixSort::sort
 // ---------------------------------------------------------------
 void RadixSort::sort(const glm::mat4& view,
                      GLuint positionOpacitySSBO,
@@ -183,34 +137,35 @@ void RadixSort::sort(const glm::mat4& view,
     const uint32_t numWG = (numElements + BLOCK_SIZE - 1) / BLOCK_SIZE;
 
     // ----------------------------------------------------------
-    // Step 1: Key generation (GPU)
-    // Writes view-space Z as sortable uint32 into mKeyA,
-    // and identity indices (0..n-1) into mValueA.
+    // Step 1: Key generation
     // ----------------------------------------------------------
     glUseProgram(mKeyGenProgram);
+    glUniformMatrix4fv(mKG_View,    1, GL_FALSE, glm::value_ptr(view));
+    glUniform1ui(mKG_NumElem, numElements);
 
-    glUniformMatrix4fv(mKeyGenLocView, 1, GL_FALSE, glm::value_ptr(view));
-    glUniform1ui(mKeyGenLocNumElem, numElements);
-
-    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, positionOpacitySSBO); // splat positions
-    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 2, mKeyA);               // keys out
-    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 4, mValueA);             // values out
+    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, positionOpacitySSBO);
+    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 2, mKeyA);
+    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 4, mValueA);
 
     glDispatchCompute(numWG, 1, 1);
     glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT);
 
     // ----------------------------------------------------------
-    // Step 2: 4-pass radix sort (ping-pong between A and B)
+    // Step 2: 4-pass radix sort
     // ----------------------------------------------------------
     glUseProgram(mSortProgram);
+    glUniform1ui(mS_NumElem, numElements);
+    glUniform1ui(mS_NumWG,   numWG);
 
-    // Ping-pong sources: even passes read A, write B; odd read B, write A.
+    // Always bind global prefix buffer
+    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 7, mGlobalPfx);
+
     GLuint keys[2]   = { mKeyA,   mKeyB   };
     GLuint values[2] = { mValueA, mValueB };
 
     for (uint32_t pass = 0; pass < NUM_PASSES; pass++)
     {
-        uint32_t src = pass & 1u;        // 0 or 1
+        uint32_t src = pass & 1u;
         uint32_t dst = 1u - src;
 
         glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 2, keys[src]);
@@ -219,62 +174,35 @@ void RadixSort::sort(const glm::mat4& view,
         glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 5, values[dst]);
         glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 6, mHistogram);
 
-        dispatchCount  (pass, numElements, numWG);
-        dispatchPrefix (pass, numElements, numWG);
-        dispatchScatter(pass, numElements, numWG);
+        glUniform1ui(mS_Pass, pass);
+
+        // COUNT
+        glUniform1ui(mS_SubPass, SP_COUNT);
+        glDispatchCompute(numWG, 1, 1);
+        glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT);
+
+        // PREFIX_LOCAL — one workgroup per bucket
+        glUniform1ui(mS_SubPass, SP_PFX_LOCAL);
+        glDispatchCompute(RADIX, 1, 1);
+        glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT);
+
+        // PREFIX_GLOBAL — single workgroup scans 256 bucket totals
+        glUniform1ui(mS_SubPass, SP_PFX_GLOBAL);
+        glDispatchCompute(1, 1, 1);
+        glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT);
+
+        // APPLY_GLOBAL — add global offsets back into histogram rows
+        glUniform1ui(mS_SubPass, SP_APPLY_GLOBAL);
+        glDispatchCompute(RADIX, 1, 1);
+        glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT);
+
+        // SCATTER
+        glUniform1ui(mS_SubPass, SP_SCATTER);
+        glDispatchCompute(numWG, 1, 1);
+        glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT);
     }
 
-
-//     glFinish(); // ensure previous work done
-// auto t0 = std::chrono::high_resolution_clock::now();
-
-// for (uint32_t pass = 0; pass < NUM_PASSES; pass++)
-// {
-//     uint32_t src = pass & 1u;
-//     uint32_t dst = 1u - src;
-
-//     glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 2, keys[src]);
-//     glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 3, keys[dst]);
-//     glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 4, values[src]);
-//     glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 5, values[dst]);
-//     glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 6, mHistogram);
-
-//     glFinish();
-//     auto ta = std::chrono::high_resolution_clock::now();
-//     dispatchCount(pass, numElements, numWG);
-//     glFinish();
-//     auto tb = std::chrono::high_resolution_clock::now();
-//     dispatchPrefix(pass, numElements, numWG);
-//     glFinish();
-//     auto tc = std::chrono::high_resolution_clock::now();
-//     dispatchScatter(pass, numElements, numWG);
-//     glFinish();
-//     auto td = std::chrono::high_resolution_clock::now();
-
-//     auto us = [](auto a, auto b){
-//         return std::chrono::duration_cast<std::chrono::microseconds>(b-a).count();
-//     };
-
-//     std::cout << "Pass " << pass
-//               << "  count="   << us(ta,tb) << "us"
-//               << "  prefix="  << us(tb,tc) << "us"
-//               << "  scatter=" << us(tc,td) << "us\n";
-// }
-
-// auto t1 = std::chrono::high_resolution_clock::now();
-// std::cout << "Total sort: "
-//           << std::chrono::duration_cast<std::chrono::milliseconds>(t1-t0).count()
-//           << "ms\n";
-
-
-
-    // After 4 passes (even count), result is in mValueA … but we always
-    // want the final result in mValueB so sortedIndexBuffer() is stable.
-    // NUM_PASSES=4 → last write was to keys[0]=mKeyA, values[0]=mValueA.
-    // Swap so sortedIndexBuffer() returns the correct buffer.
-    // (Alternatively, just check (NUM_PASSES & 1) at runtime.)
-    if ((NUM_PASSES & 1u) == 0u) {
-        // Final result landed in src=0 → mValueA. Swap so caller gets mValueB.
-        std::swap(mValueA, mValueB);
-    }
+    // With NUM_PASSES=4 (even), last scatter wrote to dst=(4-1 & 1)^1 = 0 = A
+    // So result is in mValueA → mResultInB = false
+    mResultInB = (NUM_PASSES & 1u) != 0u;
 }

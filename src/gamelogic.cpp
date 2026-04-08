@@ -249,9 +249,10 @@ void renderFrame(GLFWwindow* window)
         gRadixSort.sort(view, gaussianBuffers.ssbo, (uint32_t)gaussianSplats.size());
 
         // Unbind all slots the sort used
-        for (GLuint slot = 2; slot <= 6; slot++)
+        for (GLuint slot = 2; slot <= 7; slot++) {
             glBindBufferBase(GL_SHADER_STORAGE_BUFFER, slot, 0);
-        
+        }
+
         glUseProgram(0); // sort left its compute program active
     }
 
