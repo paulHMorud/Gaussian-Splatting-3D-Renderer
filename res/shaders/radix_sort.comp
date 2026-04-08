@@ -1,0 +1,165 @@
+#version 430 core
+
+// ============================================================
+// GPU Radix Sort — 8-bit passes, 4 passes total (32-bit keys)
+//
+// Each pass processes 8 bits of the sort key (view-space Z
+// encoded as a uint32 so that float sort order is preserved).
+//
+// Three sub-passes per radix pass:
+//   1. COUNT   — each workgroup counts its 256-bucket histogram
+//   2. PREFIX  — exclusive prefix sum across all workgroup histograms
+//   3. SCATTER — each element is written to its sorted position
+//
+// Invocation: dispatch with ceil(N / BLOCK_SIZE) workgroups.
+// ============================================================
+
+#define BLOCK_SIZE  256   // threads per workgroup
+#define RADIX       256   // 2^8 buckets
+#define BITS_PER_PASS 8
+
+// --- sub-pass selector (set via specialization or uniform) ---
+layout(local_size_x = BLOCK_SIZE) in;
+
+uniform uint uPass;       // 0..3  — which 8-bit slice we are sorting
+uniform uint uNumElements;
+
+// Keys:   float z encoded to uint (floatBitsToUint with sign fix)
+// Values: int   splat index
+layout(std430, binding = 2) buffer KeysIn    { uint keysIn[];    };
+layout(std430, binding = 3) buffer KeysOut   { uint keysOut[];   };
+layout(std430, binding = 4) buffer ValuesIn  { int  valuesIn[];  };
+layout(std430, binding = 5) buffer ValuesOut { int  valuesOut[]; };
+
+// Global histogram: RADIX * numWorkgroups entries
+// Laid out as: histogram[bucket * numWorkgroups + workgroupID]
+layout(std430, binding = 6) buffer Histogram { uint histogram[]; };
+
+shared uint localHisto[RADIX];
+
+// ----------------------------------------------------------------
+// Utility: encode a float so that its uint bit-pattern sorts in the
+// same order as the original float (handles negatives correctly).
+// ----------------------------------------------------------------
+uint floatToSortKey(float f)
+{
+    uint u = floatBitsToUint(f);
+    // If sign bit set, flip all bits; else flip only sign bit.
+    uint mask = uint(-int(u >> 31u)) | 0x80000000u;
+    return u ^ mask;
+}
+
+// ----------------------------------------------------------------
+// PASS A — COUNT
+// Each workgroup builds a local 256-bucket histogram for its chunk,
+// then writes it into the global histogram buffer.
+// ----------------------------------------------------------------
+void passCount()
+{
+    uint gid = gl_GlobalInvocationID.x;
+    uint lid = gl_LocalInvocationID.x;
+    uint wgid = gl_WorkGroupID.x;
+    uint shift = uPass * BITS_PER_PASS;
+
+    // Zero shared histogram
+    for (uint i = lid; i < RADIX; i += BLOCK_SIZE)
+        localHisto[i] = 0u;
+    barrier();
+
+    if (gid < uNumElements) {
+        uint bucket = (keysIn[gid] >> shift) & 0xFFu;
+        atomicAdd(localHisto[bucket], 1u);
+    }
+    barrier();
+
+    // Write to global histogram
+    uint numWG = gl_NumWorkGroups.x;
+    for (uint i = lid; i < RADIX; i += BLOCK_SIZE)
+        histogram[i * numWG + wgid] = localHisto[i];
+}
+
+// ----------------------------------------------------------------
+// PASS B — PREFIX SUM
+// A single workgroup scans the entire global histogram to produce
+// exclusive prefix sums (start offsets for scatter).
+// Launch with exactly 1 workgroup of RADIX threads.
+// ----------------------------------------------------------------
+void passPrefix()
+{
+    uint lid = gl_LocalInvocationID.x; // 0..255
+    uint numWG = gl_NumWorkGroups.x;   // NOTE: this is the *sort* dispatch count,
+                                       // passed in via the histogram size
+
+    // Each thread owns one bucket row; sum across all workgroups
+    uint total = 0u;
+    uint numSortWG = uNumElements / BLOCK_SIZE + 1u;
+    for (uint wg = 0u; wg < numSortWG; wg++)
+        total += histogram[lid * numSortWG + wg];
+
+    localHisto[lid] = total;
+    barrier();
+
+    // Exclusive scan over the 256 bucket totals (Hillis-Steele)
+    for (uint stride = 1u; stride < RADIX; stride <<= 1u) {
+        uint v = (lid >= stride) ? localHisto[lid - stride] : 0u;
+        barrier();
+        localHisto[lid] += v;
+        barrier();
+    }
+    // localHisto[lid] is now an INCLUSIVE scan; make it exclusive
+    uint exclusive = (lid == 0u) ? 0u : localHisto[lid - 1u];
+    barrier();
+
+    // Re-distribute prefix back into histogram rows so scatter can use it
+    // histogram[bucket * numSortWG + wg] becomes the per-workgroup start offset
+    uint runningOffset = exclusive;
+    uint numSortWG2 = uNumElements / BLOCK_SIZE + 1u;
+    for (uint wg = 0u; wg < numSortWG2; wg++) {
+        uint cnt = histogram[lid * numSortWG2 + wg];
+        histogram[lid * numSortWG2 + wg] = runningOffset;
+        runningOffset += cnt;
+    }
+}
+
+// ----------------------------------------------------------------
+// PASS C — SCATTER
+// Each element reads its workgroup's start offset from the histogram
+// and atomically claims a slot, then writes key+value there.
+// ----------------------------------------------------------------
+void passScatter()
+{
+    uint gid  = gl_GlobalInvocationID.x;
+    uint lid  = gl_LocalInvocationID.x;
+    uint wgid = gl_WorkGroupID.x;
+    uint shift = uPass * BITS_PER_PASS;
+    uint numSortWG = uNumElements / BLOCK_SIZE + 1u;
+
+    // Load per-workgroup offsets for all 256 buckets into shared mem
+    for (uint i = lid; i < RADIX; i += BLOCK_SIZE)
+        localHisto[i] = histogram[i * numSortWG + wgid];
+    barrier();
+
+    if (gid < uNumElements) {
+        uint key    = keysIn[gid];
+        int  value  = valuesIn[gid];
+        uint bucket = (key >> shift) & 0xFFu;
+        uint pos    = atomicAdd(localHisto[bucket], 1u);
+        keysOut[pos]   = key;
+        valuesOut[pos] = value;
+    }
+}
+
+// ----------------------------------------------------------------
+// Main — dispatch sub-pass via uniform
+//   uPass encodes both the bit-slice (bits 0-1) and the sub-pass
+//   type (bits 2-3): 0=count, 1=prefix, 2=scatter
+// ----------------------------------------------------------------
+
+uniform uint uSubPass;  // 0 = COUNT, 1 = PREFIX, 2 = SCATTER
+
+void main()
+{
+    if      (uSubPass == 0u) passCount();
+    else if (uSubPass == 1u) passPrefix();
+    else                     passScatter();
+}

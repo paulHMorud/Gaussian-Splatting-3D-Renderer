@@ -16,8 +16,8 @@
 #include "utilities/glutils.h"
 
 #include "gamelogic.h"
-
 #include "gaussian.hpp"
+#include "utilities/radix_sort.hpp"
 
 enum KeyFrameAction {
     BOTTOM, TOP
@@ -38,6 +38,9 @@ GaussianLoader* loader;
 Gloom::Camera* camera = new Gloom::Camera(glm::vec3(0.0,0.0, 3.0));
 
 std::vector<GaussianData> gaussianSplats;
+
+// Class for managing GPU sorting
+RadixSort gRadixSort;
 
 CommandLineOptions options;
 
@@ -67,8 +70,8 @@ static void keyCallback(GLFWwindow* window, int key, int scancode, int action, i
     GLfloat deltaTime = 0.1f;
     // camera->updateCamera(deltaTime);
 
-    glm::vec3 cpos = camera->getPosition();
-    std::cout << "the camera position is: " << cpos.x << "  " <<  cpos.y << "  " << cpos.z << std::endl;
+    // glm::vec3 cpos = camera->getPosition();
+    // std::cout << "the camera position is: " << cpos.x << "  " <<  cpos.y << "  " << cpos.z << std::endl;
 }
 
 void initGame(GLFWwindow* window, CommandLineOptions options)
@@ -111,6 +114,9 @@ void initGame(GLFWwindow* window, CommandLineOptions options)
     std::cout << sizeof(GaussianData) << std::endl;
     // Setting up VBO and EBO for quads and sending the gaussian splat data to shader
     gaussianBuffers = generateGaussianBuffer(gaussianSplats);
+
+    //initializing the sorter
+    gRadixSort.init((uint32_t)gaussianSplats.size());
 
     // for (int i = 0; i < 10; i++) {
     // auto& g = gaussianSplats[i];
@@ -233,15 +239,27 @@ void renderFrame(GLFWwindow* window)
     glUniform1f(focalLengthLocation, focal);
 
 
+    // if (gSortEveryNFrames > 0 && counter++ % gSortEveryNFrames == 0) {
+    //     sortGaussiansBackToFront(gaussianBuffers, view);
+    //     // updateGaussianSSBO(gaussianBuffers);
+    // }
+
+    //testing GPU sort instead of CPU sort
     if (gSortEveryNFrames > 0 && counter++ % gSortEveryNFrames == 0) {
-        sortGaussiansBackToFront(gaussianBuffers, view);
-        // updateGaussianSSBO(gaussianBuffers);
+        gRadixSort.sort(view, gaussianBuffers.ssbo, (uint32_t)gaussianSplats.size());
+
+        // Unbind all slots the sort used
+        for (GLuint slot = 2; slot <= 6; slot++)
+            glBindBufferBase(GL_SHADER_STORAGE_BUFFER, slot, 0);
+        
+        glUseProgram(0); // sort left its compute program active
     }
 
-
+    shader->activate();
 
     glBindVertexArray(gaussianBuffers.vao);
     glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, gaussianBuffers.ssbo);
+    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, gRadixSort.sortedIndexBuffer()); // Sorted indices
 
 
     if (gRenderAsPointCloud) {

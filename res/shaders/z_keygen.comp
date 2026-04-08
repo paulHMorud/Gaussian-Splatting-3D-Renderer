@@ -1,0 +1,49 @@
+#version 430 core
+// Reads splat positions from the existing SSBO and writes
+// view-space Z encoded as a sortable uint32 into the key buffer.
+
+layout(local_size_x = 256) in;
+
+uniform mat4  uView;
+uniform uint  uNumElements;
+
+struct GPUGaussian {
+    vec4 position_opacity;
+    vec4 color_pad;
+    vec4 cov3d_0;
+    vec4 cov3d_1;
+};
+
+layout(std430, binding = 0) readonly buffer SplatBuffer {
+    GPUGaussian splats[];
+};
+
+// Keys out  (binding 2 — same as radix sort keyA buffer)
+layout(std430, binding = 2) writeonly buffer KeysOut {
+    uint keys[];
+};
+
+// Values out (binding 4 — identity indices, reset each frame)
+layout(std430, binding = 4) writeonly buffer ValuesOut {
+    int values[];
+};
+
+uint floatToSortKey(float f)
+{
+    uint u = floatBitsToUint(f);
+    uint mask = uint(-int(u >> 31u)) | 0x80000000u;
+    return u ^ mask;
+}
+
+void main()
+{
+    uint gid = gl_GlobalInvocationID.x;
+    if (gid >= uNumElements) return;
+
+    vec3 pos = splats[gid].position_opacity.xyz;
+    // View-space Z: dot with view matrix row 2
+    float z = uView[0][2]*pos.x + uView[1][2]*pos.y + uView[2][2]*pos.z + uView[3][2];
+
+    keys[gid]   = floatToSortKey(z);
+    values[gid] = int(gid);
+}
