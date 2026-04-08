@@ -193,34 +193,34 @@ void renderFrame(GLFWwindow* window)
         0.1f,
         200.f);
 
-#if DEBUG_PRINT_AND_TURN_180
-    // Frame 0: print the normal matrices.
-    // Frame 1: force a 180-degree yaw turn, print again, then exit.
-    static int debugFrame = 0;
+    #if DEBUG_PRINT_AND_TURN_180
+        // Frame 0: print the normal matrices.
+        // Frame 1: force a 180-degree yaw turn, print again, then exit.
+        static int debugFrame = 0;
 
-    if (debugFrame == 0) {
-        std::cout << "\n=== DEBUG FRAME 0: ORIGINAL VIEW ===\n";
-        printMat4("view", view);
-        printMat4("projection", projection);
-    }
-    else if (debugFrame == 1) {
-        glm::mat4 turn180 = glm::rotate(
-            glm::mat4(1.0f),
-            glm::radians(180.0f),
-            glm::vec3(0.0f, 1.0f, 0.0f)
-        );
+        if (debugFrame == 0) {
+            std::cout << "\n=== DEBUG FRAME 0: ORIGINAL VIEW ===\n";
+            printMat4("view", view);
+            printMat4("projection", projection);
+        }
+        else if (debugFrame == 1) {
+            glm::mat4 turn180 = glm::rotate(
+                glm::mat4(1.0f),
+                glm::radians(180.0f),
+                glm::vec3(0.0f, 1.0f, 0.0f)
+            );
 
-        view = turn180 * view;
+            view = turn180 * view;
 
-        std::cout << "\n=== DEBUG FRAME 1: VIEW AFTER FORCED 180 DEGREE TURN ===\n";
-        printMat4("view", view);
-        printMat4("projection", projection);
+            std::cout << "\n=== DEBUG FRAME 1: VIEW AFTER FORCED 180 DEGREE TURN ===\n";
+            printMat4("view", view);
+            printMat4("projection", projection);
 
-        glfwSetWindowShouldClose(window, GL_TRUE);
-    }
+            glfwSetWindowShouldClose(window, GL_TRUE);
+        }
 
-    debugFrame++;
-#endif
+        debugFrame++;
+    #endif
 
 
     float tanHalfY = tanf(glm::radians(fieldOfView) * 0.5f);
@@ -235,7 +235,7 @@ void renderFrame(GLFWwindow* window)
 
     if (gSortEveryNFrames > 0 && counter++ % gSortEveryNFrames == 0) {
         sortGaussiansBackToFront(gaussianBuffers, view);
-        updateGaussianSSBO(gaussianBuffers);
+        // updateGaussianSSBO(gaussianBuffers);
     }
 
 

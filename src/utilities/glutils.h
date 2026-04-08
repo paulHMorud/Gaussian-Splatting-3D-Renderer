@@ -17,7 +17,10 @@ struct GaussianBuffers {
     GLuint vao = 0;
     GLuint quadVBO = 0;
     GLuint ssbo = 0;
+    GLuint indexSSBO = 0;                          // NEW: GPU index buffer
     std::vector<GPUGaussian> gpuSplats;
+    std::vector<int> sortedIndices;                // NEW: persistent, no realloc
+    std::vector<std::pair<float,int>> sortKeys;    // NEW: persistent, no realloc
 };
 
 GaussianBuffers generateGaussianBuffer(const std::vector<GaussianData>& splats);

@@ -1,4 +1,7 @@
 #version 430 core
+// This entire shader is based on the rasterizer from the original gaussian splatting paper "3D Gaussian Splatting for Real-Time Radiance Field Rendering"
+// The original code can be found here: https://github.com/graphdeco-inria/diff-gaussian-rasterization/blob/main/cuda_rasterizer 
+// Majority of calculations for this shader came from the forward.cu file
 
 layout(location = 0) in vec2 quadVertex;
 
@@ -19,6 +22,9 @@ struct GPUGaussian {
 
 layout(std430, binding = 0) readonly buffer GaussianBuffer {
     GPUGaussian splats[];
+};
+layout(std430, binding = 1) readonly buffer IndexBuffer {
+    int sortedIndices[];
 };
 
 out vec3 vColor;
@@ -49,7 +55,7 @@ mat3 unpackCov3D(GPUGaussian g)
 // This in the debugging stage as I cant find out why my program is not working. 
 vec3 projectCovarianceToScreen(vec4 meanCS, mat3 cov3D)
 {
-    // vec4 t4 = viewMatrix * vec4(meanCS, 1.0);
+    // vec4 t4 = viewMatrix * vec4(meanWS, 1.0);
     // vec3 t = t4.xyz;
     vec4 t = meanCS; // Test
 
@@ -73,7 +79,7 @@ vec3 projectCovarianceToScreen(vec4 meanCS, mat3 cov3D)
 
     mat3 cov = transpose(T) * transpose(cov3D) * T;
 
-    // Applying low pass filter
+    // Applying low pass filter (The original paper applies it a bit later)
     cov[0][0] += 0.3f;
 	cov[1][1] += 0.3f;
 
@@ -83,11 +89,19 @@ vec3 projectCovarianceToScreen(vec4 meanCS, mat3 cov3D)
 
 void main()
 {
-    GPUGaussian g = splats[gl_InstanceID];
+    // GPUGaussian g = splats[gl_InstanceID];
+    GPUGaussian g = splats[sortedIndices[gl_InstanceID]];
 
     vec3 positionWS = g.position_opacity.xyz; // World space
     float opacity = g.position_opacity.w;
     vec3 color = g.color_pad.xyz;
+
+    // Almost no performance benefit. Before: ~5.5 FPS, After: ~5.7
+    if (opacity < 0.05) { 
+        gl_Position = vec4(2.0, 2.0, 2.0, 1.0);
+        vOpacity = 0.0;
+        return;
+    }
 
     fragIsPointCloud = isPointCloud ? 1 : 0;
 
@@ -121,14 +135,14 @@ void main()
 
     float det = cov2D.x * cov2D.z - cov2D.y * cov2D.y;
 
-    // if (det <= 1e-8 || cov2D.x <= 0.0 || cov2D.z <= 0.0) {
-    //     gl_Position = vec4(2.0, 2.0, 2.0, 1.0);
-    //     vColor = vec3(0.0);
-    //     vOpacity = 0.0;
-    //     vConic = vec3(1.0, 0.0, 1.0);
-    //     vCoord = vec2(0.0);
-    //     return;
-    // }
+    if (det <= 1e-8 || cov2D.x <= 0.0 || cov2D.z <= 0.0) {
+        gl_Position = vec4(2.0, 2.0, 2.0, 1.0);
+        vColor = vec3(0.0);
+        vOpacity = 0.0;
+        vConic = vec3(1.0, 0.0, 1.0);
+        vCoord = vec2(0.0);
+        return;
+    }
 
     float invDet = 1.0 / det;
     vConic = vec3(
@@ -138,15 +152,28 @@ void main()
     );
 
 
-    float mid = 0.5 * (cov2D.x + cov2D.z);
-    float disc = max(1e-8, mid * mid - det);
-    float lambda1 = mid + sqrt(disc);
-    float lambda2 = mid - sqrt(disc);
+    // float mid = 0.5 * (cov2D.x + cov2D.z);
+    // float disc = max(1e-8, mid * mid - det);
+    // float lambda1 = mid + sqrt(disc);
+    // float lambda2 = mid - sqrt(disc);
 
     // vec2 quadPixels = 3.0 * vec2(sqrt(max(lambda1, 1e-8)),
     //                              sqrt(max(lambda2, 1e-8)));
 
     vec2 quadPixels = vec2(3.0 * sqrt(cov2D.x), 3.0 * sqrt(cov2D.z));
+
+    // Before: ~5.8, After: 6.8
+    // Worked really well to boost performance at max size 128 but creates artifacts
+    // Setting it at 512 and it still helps performance a bit
+    // quadPixels = min(quadPixels, vec2(512.0));
+
+
+    // Before: ~5.8, After: 5.5 Why would it slow down :(
+    // if (quadPixels.x < 1.0 && quadPixels.y < 1.0) {
+    //     gl_Position = vec4(2.0, 2.0, 2.0, 1.0);
+    //     vOpacity = 0.0;
+    //     return;
+    // }
 
     vec2 viewportScale = 2.0 * tanHalfFov * focalLength;
     vec2 quadNDC = quadPixels / viewportScale * 2.0;
