@@ -9,6 +9,8 @@
 #include <iostream>
 #include <vector>
 
+#include "imgui.h"
+
 #include <utilities/shader.hpp>
 #include "utilities/window.hpp"
 #include "utilities/glutils.h"
@@ -47,6 +49,9 @@ GLuint focalLengthLocation;
 
 unsigned int counter = 0;
 float fieldOfView = 60.0f;
+bool gRenderAsPointCloud = false;
+int gSortEveryNFrames = 30;   // 0 = never sort
+float gCurrentFps = 0.0f;
 
 
 // Forward keyboard events to camera
@@ -96,7 +101,7 @@ void initGame(GLFWwindow* window, CommandLineOptions options)
     shader->activate();
 
     // loader = new GaussianLoader("../res/Scenes/Scenes/truck/point_cloud/iteration_30000/point_cloud.ply");
-    loader = new GaussianLoader("../res/bonsai_30000.ply");
+    loader = new GaussianLoader("../res/Scenes/truck/point_cloud/iteration_30000/point_cloud.ply");
 
     gaussianSplats = loader->getGaussianSplats();
 
@@ -127,6 +132,23 @@ void initGame(GLFWwindow* window, CommandLineOptions options)
     static_assert(sizeof(GPUGaussian) == 64, "GPUGaussian must be 64 bytes");
 }
 
+
+void renderDebugUI()
+{
+    ImGui::Begin("Renderer");
+
+    ImGui::Checkbox("Render as point cloud", &gRenderAsPointCloud);
+    ImGui::SliderInt("Sort every N frames", &gSortEveryNFrames, 0, 120);
+    ImGui::Text("FPS: %.1f", gCurrentFps);
+
+    if (gSortEveryNFrames == 0) {
+        ImGui::Text("Sorting: disabled");
+    } else {
+        ImGui::Text("Sorting: every %d frames", gSortEveryNFrames);
+    }
+
+    ImGui::End();
+}
 
 // Only renders point cloud
 void renderPointCloud(size_t splatCount) {
@@ -211,7 +233,7 @@ void renderFrame(GLFWwindow* window)
     glUniform1f(focalLengthLocation, focal);
 
 
-    if (counter++ % 1 == 0) {
+    if (gSortEveryNFrames > 0 && counter++ % gSortEveryNFrames == 0) {
         sortGaussiansBackToFront(gaussianBuffers, view);
         updateGaussianSSBO(gaussianBuffers);
     }
@@ -222,9 +244,10 @@ void renderFrame(GLFWwindow* window)
     glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, gaussianBuffers.ssbo);
 
 
-    glUniform1i(isPointCloudLocation, 0);
-
-    // renderPointCloud(gaussianSplats.size());
-    // glDrawArraysInstanced(GL_TRIANGLE_FAN, 0, 4, static_cast<GLsizei>(gaussianSplats.size()));
-    glDrawArraysInstanced(GL_TRIANGLES, 0, 6, static_cast<GLsizei>(gaussianSplats.size()));
+    if (gRenderAsPointCloud) {
+        renderPointCloud(gaussianSplats.size());
+    } else {
+        glUniform1i(isPointCloudLocation, 0);
+        glDrawArraysInstanced(GL_TRIANGLES, 0, 6, static_cast<GLsizei>(gaussianSplats.size()));
+    }
 }
