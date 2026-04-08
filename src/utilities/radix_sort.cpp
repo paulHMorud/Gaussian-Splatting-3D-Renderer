@@ -12,14 +12,12 @@ static constexpr uint32_t BLOCK_SIZE = 256;
 static constexpr uint32_t RADIX      = 256;
 static constexpr uint32_t NUM_PASSES = 4;
 
-// Sub-pass IDs matching the shader
 static constexpr uint32_t SP_COUNT        = 0;
 static constexpr uint32_t SP_PFX_LOCAL    = 1;
 static constexpr uint32_t SP_PFX_GLOBAL   = 2;
 static constexpr uint32_t SP_APPLY_GLOBAL = 3;
 static constexpr uint32_t SP_SCATTER      = 4;
 
-// ---------------------------------------------------------------
 static std::string readFile(const char* path)
 {
     std::ifstream f(path);
@@ -74,7 +72,6 @@ static GLuint makeSSBO(size_t bytes)
     return buf;
 }
 
-// ---------------------------------------------------------------
 void RadixSort::init(uint32_t maxElements)
 {
     mMaxElements = maxElements;
@@ -83,8 +80,10 @@ void RadixSort::init(uint32_t maxElements)
     mSortProgram   = compileAndLink("../res/shaders/radix_sort.comp");
     if (!mKeyGenProgram || !mSortProgram) return;
 
-    mKG_View    = glGetUniformLocation(mKeyGenProgram, "uView");
-    mKG_NumElem = glGetUniformLocation(mKeyGenProgram, "uNumElements");
+    mKG_View       = glGetUniformLocation(mKeyGenProgram, "uView");
+    mKG_Projection = glGetUniformLocation(mKeyGenProgram, "uProjection");
+    mKG_NumElem    = glGetUniformLocation(mKeyGenProgram, "uNumElements");
+    mKG_CullMargin = glGetUniformLocation(mKeyGenProgram, "uCullMargin");
 
     mS_Pass    = glGetUniformLocation(mSortProgram, "uPass");
     mS_SubPass = glGetUniformLocation(mSortProgram, "uSubPass");
@@ -93,71 +92,88 @@ void RadixSort::init(uint32_t maxElements)
 
     const uint32_t maxWG = (maxElements + BLOCK_SIZE - 1) / BLOCK_SIZE;
 
-    mKeyA      = makeSSBO((size_t)maxElements * sizeof(uint32_t));
-    mKeyB      = makeSSBO((size_t)maxElements * sizeof(uint32_t));
-    mValueA    = makeSSBO((size_t)maxElements * sizeof(int32_t));
-    mValueB    = makeSSBO((size_t)maxElements * sizeof(int32_t));
-    mHistogram = makeSSBO((size_t)RADIX * maxWG * sizeof(uint32_t));
-    mGlobalPfx = makeSSBO((size_t)RADIX * sizeof(uint32_t));
+    mKeyA         = makeSSBO((size_t)maxElements * sizeof(uint32_t));
+    mKeyB         = makeSSBO((size_t)maxElements * sizeof(uint32_t));
+    mValueA       = makeSSBO((size_t)maxElements * sizeof(int32_t));
+    mValueB       = makeSSBO((size_t)maxElements * sizeof(int32_t));
+    mHistogram    = makeSSBO((size_t)RADIX * maxWG * sizeof(uint32_t));
+    mGlobalPfx    = makeSSBO((size_t)RADIX * sizeof(uint32_t));
+    mVisibleCount = makeSSBO(sizeof(uint32_t));
 
     mInitialized = true;
     std::cout << "[RadixSort] Initialized for " << maxElements
-              << " elements (" << maxWG << " workgroups).\n";
+              << " elements (" << maxWG << " max workgroups).\n";
 }
 
-// ---------------------------------------------------------------
 RadixSort::~RadixSort()
 {
-    GLuint bufs[] = { mKeyA, mKeyB, mValueA, mValueB, mHistogram, mGlobalPfx };
-    glDeleteBuffers(6, bufs);
+    GLuint bufs[] = { mKeyA, mKeyB, mValueA, mValueB,
+                      mHistogram, mGlobalPfx, mVisibleCount };
+    glDeleteBuffers(7, bufs);
     if (mSortProgram)   glDeleteProgram(mSortProgram);
     if (mKeyGenProgram) glDeleteProgram(mKeyGenProgram);
 }
 
-// ---------------------------------------------------------------
 GLuint RadixSort::sortedIndexBuffer() const
 {
-    // After NUM_PASSES=4 passes the ping-pong lands as follows:
-    // pass 0: src=A dst=B
-    // pass 1: src=B dst=A
-    // pass 2: src=A dst=B
-    // pass 3: src=B dst=A  ← final result in A (mValueA)
-    // So with 4 passes, result is always in mValueA.
     return mResultInB ? mValueB : mValueA;
 }
 
-// ---------------------------------------------------------------
-void RadixSort::sort(const glm::mat4& view,
-                     GLuint positionOpacitySSBO,
-                     uint32_t numElements)
+uint32_t RadixSort::sort(const glm::mat4& view,
+                         const glm::mat4& projection,
+                         GLuint positionOpacitySSBO,
+                         uint32_t numElements,
+                         float cullMargin)
 {
-    if (!mInitialized || numElements == 0) return;
+    if (!mInitialized || numElements == 0) return 0;
     assert(numElements <= mMaxElements);
 
-    const uint32_t numWG = (numElements + BLOCK_SIZE - 1) / BLOCK_SIZE;
+    // ----------------------------------------------------------
+    // Step 1: Reset the visible counter to 0
+    // ----------------------------------------------------------
+    const uint32_t zero = 0;
+    glBindBuffer(GL_SHADER_STORAGE_BUFFER, mVisibleCount);
+    glBufferSubData(GL_SHADER_STORAGE_BUFFER, 0, sizeof(uint32_t), &zero);
+    glBindBuffer(GL_SHADER_STORAGE_BUFFER, 0);
 
     // ----------------------------------------------------------
-    // Step 1: Key generation
+    // Step 2: Keygen + frustum cull → compact into key/value A
     // ----------------------------------------------------------
+    const uint32_t numWG = (numElements + BLOCK_SIZE - 1) / BLOCK_SIZE;
+
     glUseProgram(mKeyGenProgram);
-    glUniformMatrix4fv(mKG_View,    1, GL_FALSE, glm::value_ptr(view));
-    glUniform1ui(mKG_NumElem, numElements);
+    glUniformMatrix4fv(mKG_View,       1, GL_FALSE, glm::value_ptr(view));
+    glUniformMatrix4fv(mKG_Projection, 1, GL_FALSE, glm::value_ptr(projection));
+    glUniform1ui(mKG_NumElem,    numElements);
+    glUniform1f (mKG_CullMargin, cullMargin);
 
     glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, positionOpacitySSBO);
     glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 2, mKeyA);
     glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 4, mValueA);
+    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 8, mVisibleCount);
 
     glDispatchCompute(numWG, 1, 1);
     glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT);
 
     // ----------------------------------------------------------
-    // Step 2: 4-pass radix sort
+    // Step 3: Read back visible count (tiny 4-byte readback)
     // ----------------------------------------------------------
-    glUseProgram(mSortProgram);
-    glUniform1ui(mS_NumElem, numElements);
-    glUniform1ui(mS_NumWG,   numWG);
+    uint32_t visibleCount = 0;
+    glBindBuffer(GL_SHADER_STORAGE_BUFFER, mVisibleCount);
+    glGetBufferSubData(GL_SHADER_STORAGE_BUFFER, 0, sizeof(uint32_t), &visibleCount);
+    glBindBuffer(GL_SHADER_STORAGE_BUFFER, 0);
 
-    // Always bind global prefix buffer
+    if (visibleCount == 0) return 0;
+
+    // ----------------------------------------------------------
+    // Step 4: Radix sort over only the visible splats
+    // ----------------------------------------------------------
+    const uint32_t sortWG = (visibleCount + BLOCK_SIZE - 1) / BLOCK_SIZE;
+
+    glUseProgram(mSortProgram);
+    glUniform1ui(mS_NumElem, visibleCount);
+    glUniform1ui(mS_NumWG,   sortWG);
+
     glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 7, mGlobalPfx);
 
     GLuint keys[2]   = { mKeyA,   mKeyB   };
@@ -176,33 +192,27 @@ void RadixSort::sort(const glm::mat4& view,
 
         glUniform1ui(mS_Pass, pass);
 
-        // COUNT
         glUniform1ui(mS_SubPass, SP_COUNT);
-        glDispatchCompute(numWG, 1, 1);
+        glDispatchCompute(sortWG, 1, 1);
         glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT);
 
-        // PREFIX_LOCAL — one workgroup per bucket
         glUniform1ui(mS_SubPass, SP_PFX_LOCAL);
         glDispatchCompute(RADIX, 1, 1);
         glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT);
 
-        // PREFIX_GLOBAL — single workgroup scans 256 bucket totals
         glUniform1ui(mS_SubPass, SP_PFX_GLOBAL);
         glDispatchCompute(1, 1, 1);
         glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT);
 
-        // APPLY_GLOBAL — add global offsets back into histogram rows
         glUniform1ui(mS_SubPass, SP_APPLY_GLOBAL);
         glDispatchCompute(RADIX, 1, 1);
         glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT);
 
-        // SCATTER
         glUniform1ui(mS_SubPass, SP_SCATTER);
-        glDispatchCompute(numWG, 1, 1);
+        glDispatchCompute(sortWG, 1, 1);
         glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT);
     }
 
-    // With NUM_PASSES=4 (even), last scatter wrote to dst=(4-1 & 1)^1 = 0 = A
-    // So result is in mValueA → mResultInB = false
     mResultInB = (NUM_PASSES & 1u) != 0u;
+    return visibleCount;
 }

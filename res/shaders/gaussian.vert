@@ -163,9 +163,9 @@ void main()
     vec2 quadPixels = vec2(3.0 * sqrt(cov2D.x), 3.0 * sqrt(cov2D.z));
 
     // Before: ~5.8, After: 6.8
-    // Worked really well to boost performance at max size 128 but creates artifacts
+    // Worked ok to boost performance at max size 128 but creates artifacts
     // Setting it at 512 and it still helps performance a bit
-    // quadPixels = min(quadPixels, vec2(512.0));
+    // quadPixels = min(quadPixels, vec2(512.0)); // Did not boost performance enough
 
 
     // Before: ~5.8, After: 5.5 Why would it slow down :(

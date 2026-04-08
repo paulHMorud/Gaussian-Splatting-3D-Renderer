@@ -55,6 +55,7 @@ float fieldOfView = 60.0f;
 bool gRenderAsPointCloud = false;
 int gSortEveryNFrames = 30;   // 0 = never sort
 float gCurrentFps = 0.0f;
+static uint32_t gLastVisibleCount = 0;
 
 
 // Forward keyboard events to camera
@@ -185,7 +186,7 @@ void renderFrame(GLFWwindow* window)
 {
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
-    shader->activate();
+    // shader->activate();
 
     int windowWidth, windowHeight; 
     glfwGetWindowSize(window, &windowWidth, &windowHeight);
@@ -233,10 +234,7 @@ void renderFrame(GLFWwindow* window)
     float tanHalfX = tanHalfY * (float(windowWidth) / float(windowHeight));
     float focal = float(windowHeight) / (2.0f * tanHalfY);
 
-    glUniformMatrix4fv(viewLocation, 1, GL_FALSE, glm::value_ptr(view));
-    glUniformMatrix4fv(projLocation, 1, GL_FALSE, glm::value_ptr(projection));
-    glUniform2f(tanHalfFovLocation, tanHalfX, tanHalfY);
-    glUniform1f(focalLengthLocation, focal);
+    
 
 
     // if (gSortEveryNFrames > 0 && counter++ % gSortEveryNFrames == 0) {
@@ -245,18 +243,25 @@ void renderFrame(GLFWwindow* window)
     // }
 
     //testing GPU sort instead of CPU sort
-    if (gSortEveryNFrames > 0 && counter++ % gSortEveryNFrames == 0) {
-        gRadixSort.sort(view, gaussianBuffers.ssbo, (uint32_t)gaussianSplats.size());
+    uint32_t visibleCount = (uint32_t)gaussianSplats.size();
 
-        // Unbind all slots the sort used
-        for (GLuint slot = 2; slot <= 7; slot++) {
-            glBindBufferBase(GL_SHADER_STORAGE_BUFFER, slot, 0);
-        }
+    static uint32_t gLastVisibleCount = 0;
 
-        glUseProgram(0); // sort left its compute program active
-    }
+
+    if (gSortEveryNFrames > 0 && counter % gSortEveryNFrames == 0) {
+        gLastVisibleCount = gRadixSort.sort(view, projection,
+                                            gaussianBuffers.ssbo,
+                                            (uint32_t)gaussianSplats.size());
+    } 
+    counter++;
 
     shader->activate();
+
+    glUniformMatrix4fv(viewLocation, 1, GL_FALSE, glm::value_ptr(view));
+    glUniformMatrix4fv(projLocation, 1, GL_FALSE, glm::value_ptr(projection));
+    glUniform2f(tanHalfFovLocation, tanHalfX, tanHalfY);
+    glUniform1f(focalLengthLocation, focal);
+
 
     glBindVertexArray(gaussianBuffers.vao);
     glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, gaussianBuffers.ssbo);
@@ -264,9 +269,9 @@ void renderFrame(GLFWwindow* window)
 
 
     if (gRenderAsPointCloud) {
-        renderPointCloud(gaussianSplats.size());
+        renderPointCloud(static_cast<GLsizei>(gLastVisibleCount));
     } else {
         glUniform1i(isPointCloudLocation, 0);
-        glDrawArraysInstanced(GL_TRIANGLES, 0, 6, static_cast<GLsizei>(gaussianSplats.size()));
+        glDrawArraysInstanced(GL_TRIANGLES, 0, 6, static_cast<GLsizei>(gLastVisibleCount));
     }
 }

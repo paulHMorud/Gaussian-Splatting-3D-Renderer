@@ -1,11 +1,13 @@
 #version 430 core
-// Reads splat positions from the existing SSBO and writes
-// view-space Z encoded as a sortable uint32 into the key buffer.
+// Frustum-culls splats and writes only visible ones into the
+// key/value buffers so the sort only processes visible splats.
 
 layout(local_size_x = 256) in;
 
 uniform mat4  uView;
+uniform mat4  uProjection;
 uniform uint  uNumElements;
+uniform float uCullMargin;   // world-space radius margin, e.g. 1.0
 
 struct GPUGaussian {
     vec4 position_opacity;
@@ -18,14 +20,17 @@ layout(std430, binding = 0) readonly buffer SplatBuffer {
     GPUGaussian splats[];
 };
 
-// Keys out  (binding 2 — same as radix sort keyA buffer)
+// Compacted output — only visible splats are written
 layout(std430, binding = 2) writeonly buffer KeysOut {
     uint keys[];
 };
-
-// Values out (binding 4 — identity indices, reset each frame)
 layout(std430, binding = 4) writeonly buffer ValuesOut {
     int values[];
+};
+
+// Atomic counter — how many splats passed culling this frame
+layout(std430, binding = 8) buffer VisibleCount {
+    uint visibleCount;
 };
 
 uint floatToSortKey(float f)
@@ -35,15 +40,40 @@ uint floatToSortKey(float f)
     return u ^ mask;
 }
 
+// Returns true if the point (with a small margin) is inside all 6 frustum planes.
+// We test in clip space — fast and projection-agnostic.
+bool inFrustum(vec3 posWS)
+{
+    vec4 clip = uProjection * uView * vec4(posWS, 1.0);
+
+    // Homogeneous frustum test with margin in NDC
+    float m = uCullMargin * clip.w;   // scales margin to clip space
+
+    return clip.x >= -clip.w - m &&
+           clip.x <=  clip.w + m &&
+           clip.y >= -clip.w - m &&
+           clip.y <=  clip.w + m &&
+           clip.z >= -clip.w      &&   // near plane — no margin (avoid behind-camera splats)
+           clip.w > 0.0;               // behind camera
+}
+
 void main()
 {
     uint gid = gl_GlobalInvocationID.x;
     if (gid >= uNumElements) return;
 
-    vec3 pos = splats[gid].position_opacity.xyz;
-    // View-space Z: dot with view matrix row 2
-    float z = uView[0][2]*pos.x + uView[1][2]*pos.y + uView[2][2]*pos.z + uView[3][2];
+    vec3 posWS  = splats[gid].position_opacity.xyz;
+    float opacity = splats[gid].position_opacity.w;
 
-    keys[gid]   = floatToSortKey(z);
-    values[gid] = int(gid);
+    // Skip fully transparent splats here too — saves sort + render work
+    if (opacity < 0.004) return;  // ~sigmoid(-5.5), effectively invisible
+
+    if (!inFrustum(posWS)) return;
+
+    // Atomically claim a slot in the compacted output
+    uint slot = atomicAdd(visibleCount, 1u);
+
+    float z = uView[0][2]*posWS.x + uView[1][2]*posWS.y + uView[2][2]*posWS.z + uView[3][2];
+    keys[slot]   = floatToSortKey(z);
+    values[slot] = int(gid);
 }
