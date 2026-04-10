@@ -162,6 +162,8 @@ public:
 
             gaussianSplats.push_back(g);
         }
+        point_cloud.data.clear();
+        point_cloud.data.shrink_to_fit(); 
         
     }
 
