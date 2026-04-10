@@ -73,7 +73,7 @@ static void keyCallback(GLFWwindow* window, int key, int scancode, int action, i
 }
 
 
-//Setting up shader and 
+//Setting up OpenGL settings and activating shaders. 
 void initGame(GLFWwindow* window, CommandLineOptions options)
 {
     glfwSetKeyCallback(window, keyCallback);
@@ -101,8 +101,7 @@ void initGame(GLFWwindow* window, CommandLineOptions options)
 
     shader->activate();
 
-    // loader = new GaussianLoader("../res/Scenes/truck/point_cloud/iteration_30000/point_cloud.ply");
-    loader = new GaussianLoader("../res/cactus_splat3_30kSteps_142k_splats.ply");
+    loader = new GaussianLoader("../res/cactus.ply");
 
     gaussianSplats = loader->getGaussianSplats();
 
