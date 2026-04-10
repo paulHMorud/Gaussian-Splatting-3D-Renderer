@@ -1,3 +1,7 @@
+// This is the code handling the compute shaders to perform both culling and sorting.
+// It first uses z_keygen.comp to perform both frustum culling and creating key value pairs so that the sort does not need to move the actual gaussians (would be slow to move that much data)
+// After this it uses the radix_sort.comp shader to perform the sorting with the GPU
+
 #include "radix_sort.hpp"
 
 #include <glad/glad.h>
@@ -18,8 +22,8 @@ static constexpr uint32_t SP_PFX_GLOBAL   = 2;
 static constexpr uint32_t SP_APPLY_GLOBAL = 3;
 static constexpr uint32_t SP_SCATTER      = 4;
 
-static std::string readFile(const char* path)
-{
+//outputting some debug data
+static std::string readFile(const char* path) {
     std::ifstream f(path);
     if (!f.is_open()) {
         std::cerr << "[RadixSort] Cannot open: " << path << "\n";
@@ -30,8 +34,7 @@ static std::string readFile(const char* path)
     return ss.str();
 }
 
-static GLuint compileAndLink(const char* path)
-{
+static GLuint compileAndLink(const char* path) {
     std::string src = readFile(path);
     if (src.empty()) return 0;
 
@@ -62,8 +65,7 @@ static GLuint compileAndLink(const char* path)
     return prog;
 }
 
-static GLuint makeSSBO(size_t bytes)
-{
+static GLuint makeSSBO(size_t bytes) {
     GLuint buf = 0;
     glGenBuffers(1, &buf);
     glBindBuffer(GL_SHADER_STORAGE_BUFFER, buf);
@@ -72,8 +74,8 @@ static GLuint makeSSBO(size_t bytes)
     return buf;
 }
 
-void RadixSort::init(uint32_t maxElements)
-{
+// Initializes uniforms for the compute shaders. 
+void RadixSort::init(uint32_t maxElements) {
     mMaxElements = maxElements;
 
     mKeyGenProgram = compileAndLink("../res/shaders/z_keygen.comp");
@@ -105,8 +107,7 @@ void RadixSort::init(uint32_t maxElements)
               << " elements (" << maxWG << " max workgroups).\n";
 }
 
-RadixSort::~RadixSort()
-{
+RadixSort::~RadixSort() {
     GLuint bufs[] = { mKeyA, mKeyB, mValueA, mValueB,
                       mHistogram, mGlobalPfx, mVisibleCount };
     glDeleteBuffers(7, bufs);
@@ -128,17 +129,15 @@ uint32_t RadixSort::sort(const glm::mat4& view,
     if (!mInitialized || numElements == 0) return 0;
     assert(numElements <= mMaxElements);
 
-    // ----------------------------------------------------------
-    // Step 1: Reset the visible counter to 0
-    // ----------------------------------------------------------
+
+
+    // Initialize the count of visible splats
     const uint32_t zero = 0;
     glBindBuffer(GL_SHADER_STORAGE_BUFFER, mVisibleCount);
     glBufferSubData(GL_SHADER_STORAGE_BUFFER, 0, sizeof(uint32_t), &zero);
     glBindBuffer(GL_SHADER_STORAGE_BUFFER, 0);
 
-    // ----------------------------------------------------------
-    // Step 2: Keygen + frustum cull → compact into key/value A
-    // ----------------------------------------------------------
+    // Uses the z_keygen compute shader to cull and generate key_value pairs. Also setting the number of visible splats
     const uint32_t numWG = (numElements + BLOCK_SIZE - 1) / BLOCK_SIZE;
 
     glUseProgram(mKeyGenProgram);
@@ -155,9 +154,9 @@ uint32_t RadixSort::sort(const glm::mat4& view,
     glDispatchCompute(numWG, 1, 1);
     glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT);
 
-    // ----------------------------------------------------------
-    // Step 3: Read back visible count (tiny 4-byte readback)
-    // ----------------------------------------------------------
+
+
+    // Getting back the number of visible splats from the shader. Later used both in sorting and in the draw call.
     uint32_t visibleCount = 0;
     glBindBuffer(GL_SHADER_STORAGE_BUFFER, mVisibleCount);
     glGetBufferSubData(GL_SHADER_STORAGE_BUFFER, 0, sizeof(uint32_t), &visibleCount);
@@ -165,9 +164,9 @@ uint32_t RadixSort::sort(const glm::mat4& view,
 
     if (visibleCount == 0) return 0;
 
-    // ----------------------------------------------------------
-    // Step 4: Radix sort over only the visible splats
-    // ----------------------------------------------------------
+    
+
+    // Performs the sort on the visible splats using the radix sort compute shader. 
     const uint32_t sortWG = (visibleCount + BLOCK_SIZE - 1) / BLOCK_SIZE;
 
     glUseProgram(mSortProgram);

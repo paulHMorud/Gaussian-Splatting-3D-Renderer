@@ -1,6 +1,12 @@
 #version 430 core
 
-// ============================================================
+// If you are wondering how radix sort works: https://www.geeksforgeeks.org/dsa/radix-sort/ 
+// Radix sort is probably the best sorting when using a GPU on fixed size numeric keys (linear runtime)
+// This radix sort was written with the help of my good old pal claude.ai
+// All of the comments except the one following this was written by me, I also did some restructuring and minor fixes
+
+
+
 // GPU Radix Sort — 8-bit passes, 4 passes total (32-bit keys)
 //
 // Sub-passes per radix pass:
@@ -9,7 +15,6 @@
 //   2 = PREFIX_GLOBAL — exclusive scan over 256 bucket totals
 //   3 = APPLY_GLOBAL  — add global offset back into each row
 //   4 = SCATTER       — write elements to sorted positions
-// ============================================================
 
 #define BLOCK_SIZE    256
 #define RADIX         256
@@ -27,17 +32,16 @@ layout(std430, binding = 3) buffer KeysOut   { uint keysOut[];   };
 layout(std430, binding = 4) buffer ValuesIn  { int  valuesIn[];  };
 layout(std430, binding = 5) buffer ValuesOut { int  valuesOut[]; };
 
-// histogram[bucket * uNumWorkGroups + wgid]
 layout(std430, binding = 6) buffer Histogram { uint histogram[]; };
 
-// 256 per-bucket totals / global prefix offsets
 layout(std430, binding = 7) buffer GlobalPfx { uint globalPrefix[]; };
 
 shared uint sData[RADIX];
 
-// ----------------------------------------------------------------
-// COUNT
-// ----------------------------------------------------------------
+
+// Divides the data in the current workgroup into buckets
+// Builds a histogram of these buvkets per workgroup
+// histogram[bucket, workgroup] = number of elements in that bucket for this workgroup
 void passCount()
 {
     uint lid   = gl_LocalInvocationID.x;
@@ -50,7 +54,7 @@ void passCount()
     barrier();
 
     if (gid < uNumElements) {
-        uint bucket = (keysIn[gid] >> shift) & 0xFFu;
+        uint bucket = (keysIn[gid] >> shift) & 0xFFu; // finding the current 8 bits we are looking at
         atomicAdd(sData[bucket], 1u);
     }
     barrier();
@@ -59,21 +63,8 @@ void passCount()
         histogram[i * uNumWorkGroups + wgid] = sData[i];
 }
 
-// ----------------------------------------------------------------
-// PREFIX_LOCAL
-// Exclusive scan within each bucket's row (across workgroups).
-// Dispatch: RADIX workgroups x 1 thread each (local_size_x=256
-// but only thread 0 does real work — safe and simple).
-//
-// One thread walks the entire row sequentially, turning counts
-// into exclusive prefix offsets, and stores the row total into
-// globalPrefix[bucket].
-//
-// This is O(uNumWorkGroups) serial work per bucket, but each of
-// the 256 buckets runs in its own workgroup in parallel, so the
-// wall-clock cost is O(uNumWorkGroups) not O(256*uNumWorkGroups).
-// For 9900 workgroups this is ~9900 reads+writes — very fast.
-// ----------------------------------------------------------------
+// Goes through each buckets row and finds the local offset for each key within bucket.
+// also finds the size of each bucket globally and saves it to globalPrefix[]
 void passPrefixLocal()
 {
     uint bucket = gl_WorkGroupID.x;  // 0..255
@@ -91,11 +82,7 @@ void passPrefixLocal()
     globalPrefix[bucket] = running;  // total for this bucket
 }
 
-// ----------------------------------------------------------------
-// PREFIX_GLOBAL
-// Exclusive scan over the 256 bucket totals → global start offsets.
-// Dispatch: 1 workgroup x RADIX threads.
-// ----------------------------------------------------------------
+// Finds global offset of each bucket. Does this by adding the size of all buckets before curr bucket. 
 void passPrefixGlobal()
 {
     uint lid = gl_LocalInvocationID.x;
@@ -103,7 +90,6 @@ void passPrefixGlobal()
     sData[lid] = globalPrefix[lid];
     barrier();
 
-    // Hillis-Steele inclusive scan
     for (uint stride = 1u; stride < RADIX; stride <<= 1u) {
         uint v = (lid >= stride) ? sData[lid - stride] : 0u;
         barrier();
@@ -117,11 +103,8 @@ void passPrefixGlobal()
     globalPrefix[lid] = excl;
 }
 
-// ----------------------------------------------------------------
-// APPLY_GLOBAL
-// Add each bucket's global start offset to all entries in its row.
-// Dispatch: RADIX workgroups x BLOCK_SIZE threads.
-// ----------------------------------------------------------------
+
+// Adds global offset (from globalPrefix) to the local offsets (histogram)
 void passApplyGlobal()
 {
     uint bucket = gl_WorkGroupID.x;
@@ -132,9 +115,7 @@ void passApplyGlobal()
         histogram[bucket * uNumWorkGroups + wg] += offset;
 }
 
-// ----------------------------------------------------------------
-// SCATTER
-// ----------------------------------------------------------------
+// Keys acutally placed in correct place in output array.
 void passScatter()
 {
     uint gid   = gl_GlobalInvocationID.x;

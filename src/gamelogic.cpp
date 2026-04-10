@@ -52,15 +52,15 @@ GLuint cameraPosLocation;
 
 unsigned int counter = 0;
 float fieldOfView = 60.0f;
-bool  gRenderAsPointCloud = false;
-int   gSortEveryNFrames = 10;
+bool  gRenderAsPointCloud = false; //Toggling point cloud on and off
+int   gSortEveryNFrames = 1; //Telling the program how many frames between sort (and culling)
 float gCurrentFps = 0.0f;
-int   gShDegree = 3;          // default: full SH on
-static bool gUseSH = true;    // ImGui-facing toggle
+int   gShDegree = 3; //degree of spherical harmonics
+static bool gUseSH = true; //toggling SH on and off
 static uint32_t gLastVisibleCount = 0;
 
 
-
+//Closes the program if esc is pressed, sends input to camera
 static void keyCallback(GLFWwindow* window, int key, int scancode, int action, int mods)
 {
     if (glfwGetKey(window, GLFW_KEY_ESCAPE) == GLFW_PRESS)
@@ -72,6 +72,8 @@ static void keyCallback(GLFWwindow* window, int key, int scancode, int action, i
     camera->handleKeyboardInputs(key, action);
 }
 
+
+//Setting up shader and 
 void initGame(GLFWwindow* window, CommandLineOptions options)
 {
     glfwSetKeyCallback(window, keyCallback);
@@ -84,9 +86,12 @@ void initGame(GLFWwindow* window, CommandLineOptions options)
     });
 
     glDisable(GL_DEPTH_TEST);
+    glDisable(GL_DITHER);
     glEnable(GL_BLEND);
     glDepthMask(GL_FALSE);
     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+
+    glClearColor(0.2f, 0.2f, 0.2f, 1.0f);
 
     glEnable(GL_CULL_FACE);
 
@@ -96,8 +101,8 @@ void initGame(GLFWwindow* window, CommandLineOptions options)
 
     shader->activate();
 
-    loader = new GaussianLoader("../res/Scenes/bicycle/point_cloud/iteration_30000/point_cloud.ply");
-    // loader = new GaussianLoader("../res/bb8.ply");
+    // loader = new GaussianLoader("../res/Scenes/truck/point_cloud/iteration_30000/point_cloud.ply");
+    loader = new GaussianLoader("../res/cactus_splat3_30kSteps_142k_splats.ply");
 
     gaussianSplats = loader->getGaussianSplats();
 

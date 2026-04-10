@@ -1,8 +1,6 @@
-#ifndef CAMERA_HPP
 #define CAMERA_HPP
 #pragma once
 
-// System headers
 #include <glad/glad.h>
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
@@ -12,11 +10,12 @@
 
 namespace Gloom
 {
+    /* Handles camera movement and calculation of view matrix*/
     class Camera
     {
     public:
         Camera(glm::vec3 position         = glm::vec3(0.0f, 0.0f, 2.0f),
-               GLfloat   movementSpeed    = 0.5f,
+               GLfloat   movementSpeed    = 2.0f,
                GLfloat   mouseSensitivity = 0.005f)
         {
             cPosition         = position;
@@ -26,8 +25,6 @@ namespace Gloom
             // Set up the initial view matrix
             updateViewMatrix();
         }
-
-        // Public member functions
 
         /* Getter for the view matrix */
         glm::mat4 getViewMatrix() { return matView; }
@@ -40,14 +37,11 @@ namespace Gloom
         void handleKeyboardInputs(int key, int action)
         {
             // Keep track of pressed/released buttons
-            if (key >= 0 && key < 512)
-            {
-                if (action == GLFW_PRESS)
-                {
+            if (key >= 0 && key < 512) {
+                if (action == GLFW_PRESS) {
                     keysInUse[key] = true;
                 }
-                else if (action == GLFW_RELEASE)
-                {
+                else if (action == GLFW_RELEASE) {
                     keysInUse[key] = false;
                 }
             }
@@ -55,16 +49,11 @@ namespace Gloom
 
 
         /* Handle mouse button inputs from a callback mechanism */
-        void handleMouseButtonInputs(int button, int action)
-        {
-            // Ensure that the camera only rotates when the left mouse button is
-            // pressed
-            if (button == GLFW_MOUSE_BUTTON_LEFT && action == GLFW_PRESS)
-            {
+        void handleMouseButtonInputs(int button, int action) {
+            if (button == GLFW_MOUSE_BUTTON_LEFT && action == GLFW_PRESS) {
                 isMousePressed = true;
             }
-            else
-            {
+            else {
                 isMousePressed = false;
                 resetMouse = true;
             }
@@ -72,8 +61,7 @@ namespace Gloom
 
 
         /* Handle cursor position from a callback mechanism */
-        void handleCursorPosInput(double xpos, double ypos)
-        {
+        void handleCursorPosInput(double xpos, double ypos) {
             if (!isMousePressed)
                 return;
 
@@ -98,8 +86,7 @@ namespace Gloom
 
         /* Update the camera position and view matrix
            `deltaTime` is the time between the current and last frame */
-        void updateCamera(GLfloat deltaTime)
-        {
+        void updateCamera(GLfloat deltaTime) {
             glm::vec3 dirX = glm::normalize(cQuaternion * glm::vec3(1.0f, 0.0f, 0.0f));
             glm::vec3 dirY(0.0f, 1.0f, 0.0f); // world up
             glm::vec3 dirZ = glm::normalize(cQuaternion * glm::vec3(0.0f, 0.0f, -1.0f));
@@ -126,11 +113,8 @@ namespace Gloom
         Camera(Camera const &) = delete;
         Camera & operator =(Camera const &) = delete;
 
-        // Private member function
-
         /* Update the view matrix based on the current information */
-        void updateViewMatrix()
-        {
+        void updateViewMatrix() {
             const glm::vec3 worldUp(0.0f, 1.0f, 0.0f);
 
             // Yaw about global up
@@ -150,8 +134,6 @@ namespace Gloom
             matView = matRotation * matTranslate;
         }
 
-        // Private member variables
-
         // Camera quaternion and frame pitch and yaw
         glm::quat cQuaternion;
         GLfloat cPitch = 0.0f;
@@ -163,7 +145,7 @@ namespace Gloom
         // Variables used for bookkeeping
         GLboolean resetMouse     = true;
         GLboolean isMousePressed = false;
-        GLboolean keysInUse[512] = {false}; // initialize keys to not-pressed
+        GLboolean keysInUse[512] = {false};
 
         // Rotation speed (radians per second) for keyboard arrow control
         GLfloat cRotationSpeed = 0.4f;
@@ -180,5 +162,3 @@ namespace Gloom
         glm::mat4 matView;
     };
 }
-
-#endif

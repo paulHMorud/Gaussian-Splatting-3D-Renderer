@@ -1,6 +1,7 @@
 #version 430 core
-// This entire shader is based on the rasterizer from the original gaussian splatting paper "3D Gaussian Splatting for Real-Time Radiance Field Rendering"
+// This shader is also based on the rasterizer from the original gaussian splatting paper "3D Gaussian Splatting for Real-Time Radiance Field Rendering"
 // The original code can be found here: https://github.com/graphdeco-inria/diff-gaussian-rasterization/blob/main/cuda_rasterizer 
+// The calculations are based on the function renderCUDA() in the forward.cu file
 
 in vec3 vColor;
 in float vOpacity;

@@ -7,13 +7,8 @@
 #include <glm/gtc/matrix_transform.hpp>
 
 // std430 layout. 240 bytes total.
-// We dropped color_pad — color is now derived from SH on the GPU.
-// sh[12] holds 48 floats laid out as 16 RGB triplets:
-//   sh_flat[0..2]   = DC  (band 0)
-//   sh_flat[3..11]  = band 1 (3 coeffs * RGB)
-//   sh_flat[12..26] = band 2 (5 coeffs * RGB)
-//   sh_flat[27..47] = band 3 (7 coeffs * RGB)
-// packed 4 floats per vec4.
+// This struct is very large because of the SH. I am pretty sure this makes point cloud rendering slow, but who cares about that.
+// TODO: Add in separate struct for when SH is toggled off
 struct GPUGaussian {
     glm::vec4 position_opacity; // xyz + activated opacity
     glm::vec4 cov3d_0;          // xx, xy, xz, yy
@@ -21,6 +16,7 @@ struct GPUGaussian {
     glm::vec4 sh[12];           // 48 SH floats (DC + 15 higher-order, RGB)
 };
 
+// Contains bufferIds and arrays for sorting used in gamelogic.cpp
 struct GaussianBuffers {
     GLuint vao = 0;
     GLuint quadVBO = 0;

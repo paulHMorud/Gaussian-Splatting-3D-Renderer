@@ -46,13 +46,11 @@ GaussianBuffers generateGaussianBuffer(const std::vector<GaussianData>& splats)
         gpu.cov3d_0          = glm::vec4(cov[0][0], cov[1][0], cov[2][0], cov[1][1]);
         gpu.cov3d_1          = glm::vec4(cov[2][1], cov[2][2], 0.0f, 0.0f);
 
-        // ----- Pack SH coefficients ------------------------------------------
-        // PLY layout (INRIA format) for f_rest is CHANNEL-major:
-        //   f_rest[ 0..14] = R coeffs for bands 1..3 (15 values)
-        //   f_rest[15..29] = G coeffs
-        //   f_rest[30..44] = B coeffs
-        // We repack into a flat 48-float array as 16 RGB triplets:
-        //   sh_flat[3*c+0..2] = (R,G,B) for coefficient c, c in [0..15]
+        // f_rest[ 0..14] = R coeffs
+        // f_rest[15..29] = G coeffs
+        // f_rest[30..44] = B coeffs
+        // repacking into a 48-float array as 16 RGB triplets:
+        // sh_flat[3*c+0..2] = (R,G,B) for coefficient c, c in [0..15]
         // Coefficient 0 is the DC term from f_dc.
         float sh_flat[48];
 
@@ -86,6 +84,8 @@ GaussianBuffers generateGaussianBuffer(const std::vector<GaussianData>& splats)
     std::cout << "offset cov3d_1:          " << offsetof(GPUGaussian, cov3d_1) << "\n";
     std::cout << "offset sh:               " << offsetof(GPUGaussian, sh) << "\n";
 
+    // I dont know whats better to use between SSBOs and VBOs. I can imagine VBOs being a bit quicker
+    // But I wanted to test out SSBOs so went with that
     glGenBuffers(1, &buffers.ssbo);
     glBindBuffer(GL_SHADER_STORAGE_BUFFER, buffers.ssbo);
     glBufferData(GL_SHADER_STORAGE_BUFFER,
@@ -113,6 +113,7 @@ GaussianBuffers generateGaussianBuffer(const std::vector<GaussianData>& splats)
     return buffers;
 }
 
+// This is an outdated CPU sort (actually surprisingly fast). I am considering adding a toggle between CPU and GPU sort later, so I am waiting with deleting the function.
 void sortGaussiansBackToFront(GaussianBuffers& buffers, const glm::mat4& view)
 {
     const int n = (int)buffers.gpuSplats.size();

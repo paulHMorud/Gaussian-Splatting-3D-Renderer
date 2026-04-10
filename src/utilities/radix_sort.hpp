@@ -11,7 +11,7 @@ public:
     void init(uint32_t maxElements);
 
     // Returns the number of visible splats after culling.
-    // Pass this to glDrawArraysInstanced instead of total splat count.
+    // Pass this to glDrawArraysInstanced.
     uint32_t sort(const glm::mat4& view,
                   const glm::mat4& projection,
                   GLuint positionOpacitySSBO,
@@ -30,7 +30,7 @@ private:
     GLuint mValueB       = 0;
     GLuint mHistogram    = 0;
     GLuint mGlobalPfx    = 0;
-    GLuint mVisibleCount = 0;   // atomic counter SSBO (1 uint)
+    GLuint mVisibleCount = 0;   // atomic counter
 
     GLuint mKeyGenProgram = 0;
     GLuint mSortProgram   = 0;

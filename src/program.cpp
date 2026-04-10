@@ -21,23 +21,6 @@
 
 void runProgram(GLFWwindow* window, CommandLineOptions options)
 {
-    // Enable depth (Z) buffer (accept "closest" fragment)
-    // glEnable(GL_DEPTH_TEST);
-    // glDepthFunc(GL_LESS);
-
-    // // Configure miscellaneous OpenGL settings
-    // glEnable(GL_CULL_FACE);
-
-    // // Disable built-in dithering
-    glDisable(GL_DITHER);
-
-    // // Enable transparency
-    // glEnable(GL_BLEND);
-    // glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-
-    // Set default colour after clearing the colour buffer
-    glClearColor(0.2f, 0.2f, 0.2f, 1.0f);
-
 	initGame(window, options);
 
     IMGUI_CHECKVERSION();

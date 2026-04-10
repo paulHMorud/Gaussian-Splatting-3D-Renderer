@@ -1,5 +1,8 @@
 #version 430 core
 // 3D Gaussian Splatting vertex shader with view-dependent color via spherical harmonics.
+// This entire shader is based on the rasterizer from the original gaussian splatting paper "3D Gaussian Splatting for Real-Time Radiance Field Rendering"
+// The original code can be found here: https://github.com/graphdeco-inria/diff-gaussian-rasterization/blob/main/cuda_rasterizer 
+// Majority of calculations for this shader came from the forward.cu file
 
 layout(location = 0) in vec2 quadVertex;
 
@@ -9,16 +12,15 @@ uniform mat4  projectionMatrix;
 uniform vec2  tanHalfFov;
 uniform float focalLength;
 
-// SH controls
-uniform int  uShDegree;   // 0 = DC only (flat color), 1/2/3 = use bands up to that degree
-uniform vec3 uCameraPos;  // camera position in the renderer's (flipped) world space
-
+// SH degree from imgui
+uniform int  uShDegree;
+uniform vec3 uCameraPos; //Needed for sh
 
 struct GPUGaussian {
     vec4 position_opacity;
     vec4 cov3d_0;
     vec4 cov3d_1;
-    vec4 sh[12]; // 48 floats: 16 RGB triplets, coefficient-major
+    vec4 sh[12];
 };
 
 layout(std430, binding = 0) readonly buffer GaussianBuffer {
@@ -35,7 +37,7 @@ out vec2  vCoord;
 flat out int fragIsPointCloud;
 
 
-// ---------- SH helpers ------------------------------------------------------
+//Constants from auxiliary.h in the original rasterizer
 const float SH_C0 = 0.28209479177387814;
 const float SH_C1 = 0.4886025119029199;
 const float SH_C2_0 =  1.0925484305920792;
@@ -66,6 +68,7 @@ vec3 shCoeff(GPUGaussian g, int c)
     return vec3(f0, f1, f2);
 }
 
+// Calculations based on computeColorFromSH() from forward.cu
 vec3 evalSH(GPUGaussian g, vec3 dir, int degree)
 {
     vec3 result = SH_C0 * shCoeff(g, 0);
@@ -97,10 +100,9 @@ vec3 evalSH(GPUGaussian g, vec3 dir, int degree)
         }
     }
 
-    // Convention from the original 3DGS code: SH represents (color - 0.5)
+    // Convention from the original 3DGS code, SH represents (color - 0.5)
     return max(result + 0.5, vec3(0.0));
 }
-// ---------------------------------------------------------------------------
 
 
 mat3 unpackCov3D(GPUGaussian g)
@@ -119,8 +121,8 @@ mat3 unpackCov3D(GPUGaussian g)
     );
 }
 
-vec3 projectCovarianceToScreen(vec4 meanCS, mat3 cov3D)
-{
+// Calculation based on computeCov2d() from forward.cu
+vec3 projectCovarianceToScreen(vec4 meanCS, mat3 cov3D) {
     vec4 t = meanCS;
 
     float limX = 1.3 * tanHalfFov.x;
@@ -157,24 +159,17 @@ void main()
     vec3 positionWS = g.position_opacity.xyz;
     float opacity   = g.position_opacity.w;
 
-    // ---- Compute view-dependent color via SH -----------------------------
-    // The PLY loader negates x and y to flip handedness, so the renderer's
-    // world space is mirrored relative to the space the SH was trained in.
-    // To evaluate SH correctly we negate x and y of the direction so it lives
-    // in the original training space.
-    // (If your colors look wrong front-to-back, try removing the negation.)
+    // Color
     vec3 dirRender = normalize(positionWS - uCameraPos);
     vec3 dirSH = vec3(-dirRender.x, -dirRender.y, dirRender.z);
-
     vec3 color = evalSH(g, dirSH, clamp(uShDegree, 0, 3));
-    // ----------------------------------------------------------------------
 
     fragIsPointCloud = isPointCloud ? 1 : 0;
 
     if (isPointCloud) {
         vec4 positionCS = viewMatrix * vec4(positionWS, 1.0);
         gl_Position = projectionMatrix * positionCS;
-        gl_PointSize = 3.0;
+        gl_PointSize = 1.0;
 
         vColor = color;
         vOpacity = opacity;
@@ -183,6 +178,7 @@ void main()
         return;
     }
 
+    // Position
     vec4 positionCS = viewMatrix * vec4(positionWS, 1.0);
     mat3 cov3D = unpackCov3D(g);
 
@@ -205,6 +201,7 @@ void main()
         return;
     }
 
+    // Rotation
     float invDet = 1.0 / det;
     vConic = vec3(
         cov2D.z * invDet,
@@ -212,6 +209,7 @@ void main()
         cov2D.x * invDet
     );
 
+    // Quadsize
     vec2 quadPixels = vec2(3.0 * sqrt(cov2D.x), 3.0 * sqrt(cov2D.z));
 
     vec2 viewportScale = 2.0 * tanHalfFov * focalLength;

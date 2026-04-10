@@ -1,5 +1,4 @@
-I borrowed the Hall of the Mountain King track from here:
+I borrowed the cactus .ply file from:
+https://note.com/steam_studio/n/ne9736d94f162  
+The name of the scene I am using is cactus_splat3_30kSteps_142k_splats.ply
 
-Hall of the Mountain King Kevin MacLeod (incompetech.com)
-Licensed under Creative Commons: By Attribution 3.0 License
-http://creativecommons.org/licenses/by/3.0/
