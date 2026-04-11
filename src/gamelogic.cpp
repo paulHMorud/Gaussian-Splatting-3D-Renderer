@@ -19,6 +19,11 @@
 #include "gaussian.hpp"
 #include "utilities/radix_sort.hpp"
 
+#include <filesystem>
+#include <algorithm>
+
+namespace fs = std::filesystem;
+
 enum KeyFrameAction {
     BOTTOM, TOP
 };
@@ -59,6 +64,10 @@ int   gShDegree = 3; //degree of spherical harmonics
 static bool gUseSH = true; //toggling SH on and off
 static uint32_t gLastVisibleCount = 0;
 
+static std::vector<std::string> gPlyFiles;
+static int  gCurrentPlyIndex = 0;
+static const std::string gResDir = "../res/";
+
 
 //Closes the program if esc is pressed, sends input to camera
 static void keyCallback(GLFWwindow* window, int key, int scancode, int action, int mods)
@@ -66,12 +75,49 @@ static void keyCallback(GLFWwindow* window, int key, int scancode, int action, i
     if (glfwGetKey(window, GLFW_KEY_ESCAPE) == GLFW_PRESS)
     {
         glfwSetWindowShouldClose(window, GL_TRUE);
-        delete loader;
     }
 
     camera->handleKeyboardInputs(key, action);
 }
 
+static void scanPlyFiles()
+{
+    gPlyFiles.clear();
+    if (!fs::exists(gResDir)) {
+        std::cerr << "res directory not found: " << gResDir << std::endl;
+        return;
+    }
+    for (const auto& entry : fs::directory_iterator(gResDir)) {
+        if (entry.is_regular_file() && entry.path().extension() == ".ply") {
+            gPlyFiles.push_back(entry.path().filename().string());
+        }
+    }
+    std::sort(gPlyFiles.begin(), gPlyFiles.end());
+}
+
+static void loadPlyFile(const std::string& filename)
+{
+    const std::string path = gResDir + filename;
+
+    if (gaussianBuffers.vao)       glDeleteVertexArrays(1, &gaussianBuffers.vao);
+    if (gaussianBuffers.quadVBO)   glDeleteBuffers(1, &gaussianBuffers.quadVBO);
+    if (gaussianBuffers.ssbo)      glDeleteBuffers(1, &gaussianBuffers.ssbo);
+    if (gaussianBuffers.indexSSBO) glDeleteBuffers(1, &gaussianBuffers.indexSSBO);
+    gaussianBuffers = {};
+
+    loader = new GaussianLoader(path);
+    gaussianSplats = loader->getGaussianSplats();
+    delete loader;
+    loader = nullptr;
+
+    gaussianBuffers = generateGaussianBuffer(gaussianSplats);
+    gRadixSort.init((uint32_t)gaussianSplats.size());
+
+    counter = 0;
+    gLastVisibleCount = 0;
+
+    std::cout << "Loaded " << path << " (" << gaussianSplats.size() << " splats)\n";
+}
 
 //Setting up OpenGL settings and activating shaders. 
 void initGame(GLFWwindow* window, CommandLineOptions options)
@@ -101,15 +147,28 @@ void initGame(GLFWwindow* window, CommandLineOptions options)
 
     shader->activate();
 
-    loader = new GaussianLoader("../res/cactus.ply");
+    scanPlyFiles();
 
-    gaussianSplats = loader->getGaussianSplats();
+    // Pick cactus.ply by default if present, else the first file
+    std::string defaultFile = "cactus.ply";
+    auto it = std::find(gPlyFiles.begin(), gPlyFiles.end(), defaultFile);
+    if (it != gPlyFiles.end()) {
+        gCurrentPlyIndex = (int)std::distance(gPlyFiles.begin(), it);
+    } else if (!gPlyFiles.empty()) {
+        gCurrentPlyIndex = 0;
+        defaultFile = gPlyFiles[0];
+    } else {
+        std::cerr << "No .ply files found in " << gResDir << std::endl;
+        return;
+    }
+
+    loadPlyFile(defaultFile);
 
     std::cout << "Loaded splats: " << gaussianSplats.size() << std::endl;
     std::cout << "sizeof(GaussianData): " << sizeof(GaussianData) << std::endl;
 
     gaussianBuffers = generateGaussianBuffer(gaussianSplats);
-
+    
     gRadixSort.init((uint32_t)gaussianSplats.size());
 
     viewLocation         = glGetUniformLocation(shader->get(), "viewMatrix");
@@ -127,6 +186,28 @@ void initGame(GLFWwindow* window, CommandLineOptions options)
 void renderDebugUI()
 {
     ImGui::Begin("Renderer");
+
+    if (!gPlyFiles.empty()) {
+        const char* current = gPlyFiles[gCurrentPlyIndex].c_str();
+        if (ImGui::BeginCombo("PLY file", current)) {
+            for (int i = 0; i < (int)gPlyFiles.size(); ++i) {
+                bool selected = (i == gCurrentPlyIndex);
+                if (ImGui::Selectable(gPlyFiles[i].c_str(), selected) && i != gCurrentPlyIndex) {
+                    gCurrentPlyIndex = i;
+                    loadPlyFile(gPlyFiles[i]);
+                }
+                if (selected) ImGui::SetItemDefaultFocus();
+            }
+            ImGui::EndCombo();
+        }
+        if (ImGui::Button("Rescan res/")) {
+            std::string keep = gPlyFiles[gCurrentPlyIndex];
+            scanPlyFiles();
+            auto it = std::find(gPlyFiles.begin(), gPlyFiles.end(), keep);
+            gCurrentPlyIndex = (it != gPlyFiles.end()) ? (int)std::distance(gPlyFiles.begin(), it) : 0;
+        }
+        ImGui::Separator();
+    }
 
     ImGui::Checkbox("Render as point cloud", &gRenderAsPointCloud);
     ImGui::SliderInt("Sort every N frames", &gSortEveryNFrames, 0, 120);
@@ -146,6 +227,10 @@ void renderDebugUI()
     } else {
         ImGui::Text("Sorting: every %d frames", gSortEveryNFrames);
     }
+
+    glm::vec3 p = camera->getPosition();
+    ImGui::Text("Cam pos: %.2f  %.2f  %.2f", p.x, p.y, p.z);
+    ImGui::Text("Splat count: %zu", gaussianSplats.size());
 
     ImGui::End();
 }

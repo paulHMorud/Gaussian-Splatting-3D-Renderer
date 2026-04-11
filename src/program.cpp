@@ -17,7 +17,6 @@
 #include "imgui_impl_glfw.h"
 #include "imgui_impl_opengl3.h"
 
-
 void runProgram(GLFWwindow* window, CommandLineOptions options)
 {
 	initGame(window, options);
