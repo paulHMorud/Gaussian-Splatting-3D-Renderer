@@ -66,13 +66,11 @@ GLFWwindow* initialise()
 
 int main(int argc, const char* argb[])
 {
-    arrrgh::parser parser("glowbox", "Small breakout like juggling game");
-    const auto& showHelp       = parser.add<bool>("help", "Show this help message.", 'h', arrrgh::Optional, false);
-    const auto& enableMusic    = parser.add<bool>("enable-music", "Play background music while the game is playing", 'm', arrrgh::Optional, false);
-    const auto& enableAutoplay = parser.add<bool>("autoplay", "Let the game play itself automatically. Useful for testing.", 'a', arrrgh::Optional, false);
-
-    // If you want to add more program arguments, define them here,
-    // but do not request their value here (they have not been parsed yet at this point).
+    arrrgh::parser parser("3dgs", "3D Gaussian Splatting Renderer");
+    const auto& showHelp       = parser.add<bool>("help",         "Show this help message.",                                          'h', arrrgh::Optional, false);
+    const auto& enableMusic    = parser.add<bool>("enable-music", "Play background music while the game is playing",                  'm', arrrgh::Optional, false);
+    const auto& enableAutoplay = parser.add<bool>("autoplay",     "Let the game play itself automatically. Useful for testing.",      'a', arrrgh::Optional, false);
+    const auto& enableRecord   = parser.add<bool>("record",       "Orbit camera 360° around the scene and save output as orbit.mp4", 'r', arrrgh::Optional, false);
 
     try
     {
@@ -86,14 +84,16 @@ int main(int argc, const char* argb[])
     }
 
     // Show help if desired
-    if(showHelp.value())
+    if (showHelp.value())
     {
+        parser.show_usage(std::cout);
         return 0;
     }
 
     CommandLineOptions options;
     options.enableMusic    = enableMusic.value();
     options.enableAutoplay = enableAutoplay.value();
+    options.record         = enableRecord.value();
 
     // Initialise window using GLFW
     GLFWwindow* window = initialise();

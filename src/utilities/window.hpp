@@ -23,6 +23,7 @@ const int         windowSamples   = 4;
 
 
 struct CommandLineOptions {
-    bool enableMusic;
-    bool enableAutoplay;
+    bool enableMusic    = false;
+    bool enableAutoplay = false;
+    bool record         = false; // enables orbit-recording mode (--record)
 };

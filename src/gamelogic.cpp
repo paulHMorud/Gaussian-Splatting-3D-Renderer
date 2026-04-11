@@ -34,7 +34,7 @@ Gloom::Shader* shader;
 GaussianBuffers gaussianBuffers;
 GaussianLoader* loader;
 
-Gloom::Camera* camera = new Gloom::Camera(glm::vec3(0.0,0.0, 3.0));
+Gloom::Camera* camera = new Gloom::Camera(glm::vec3(0.0,0.0, 0.0));
 
 std::vector<GaussianData> gaussianSplats;
 
@@ -101,7 +101,7 @@ void initGame(GLFWwindow* window, CommandLineOptions options)
 
     shader->activate();
 
-    loader = new GaussianLoader("../res/cactus.ply");
+    loader = new GaussianLoader("../res/flowers.ply");
 
     gaussianSplats = loader->getGaussianSplats();
 
@@ -146,6 +146,10 @@ void renderDebugUI()
     } else {
         ImGui::Text("Sorting: every %d frames", gSortEveryNFrames);
     }
+
+    glm::vec3 p = camera->getPosition();
+    ImGui::Text("Cam pos: %.2f  %.2f  %.2f", p.x, p.y, p.z);
+    ImGui::Text("Splat count: %zu", gaussianSplats.size());
 
     ImGui::End();
 }
