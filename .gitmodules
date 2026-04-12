@@ -31,3 +31,6 @@
 [submodule "lib/fmt"]
 	path = lib/fmt
 	url = https://github.com/fmtlib/fmt.git
+[submodule "lib/pcl"]
+	path = lib/pcl
+	url = https://github.com/PointCloudLibrary/pcl.git

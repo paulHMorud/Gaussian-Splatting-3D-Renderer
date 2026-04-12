@@ -2,6 +2,9 @@ SOURCES := $(shell find src/ -type f | grep -E '\.(h|c)(pp)?$$')
 MAKE_OPTS := -j2
 GDB_OPTS := -ex "set style enabled on"
 
+# Fix for glfw using deprecated CMake version
+CMAKE_COMMON_FLAGS := -DCMAKE_POLICY_VERSION_MINIMUM=3.5
+
 .PHONY: help
 help:
 	@echo -e "Try one of these make targets:\n"
@@ -22,14 +25,14 @@ build: build/glowbox
 build/glowbox: ${SOURCES} | build/Makefile has-make
 	make -C build $(MAKE_OPTS)
 build/Makefile: | build/ _submodules has-cmake
-	cd build && cmake ..
+	cd build && cmake ${CMAKE_COMMON_FLAGS} ..
 
 .PHONY: build-debug
 build-debug: build-debug/glowbox
 build-debug/glowbox: ${SOURCES} | build-debug/Makefile has-make
 	make -C build-debug $(MAKE_OPTS)
 build-debug/Makefile: | build-debug/ _submodules has-cmake
-	cd build-debug && cmake -DCMAKE_BUILD_TYPE=Debug ..
+	cd build-debug && cmake ${CMAKE_COMMON_FLAGS} -DCMAKE_BUILD_TYPE=Debug ..
 
 
 .PHONY: build-prof run-prof
@@ -42,7 +45,7 @@ build-prof/glowbox: ${SOURCES} | build-prof/Makefile has-make
 	make -C build-prof $(MAKE_OPTS)
 
 build-prof/Makefile: | build-prof/ _submodules has-cmake
-	cd build-prof && cmake -DCMAKE_BUILD_TYPE=RelWithDebInfo ..
+	cd build-prof && cmake ${CMAKE_COMMON_FLAGS} -DCMAKE_BUILD_TYPE=RelWithDebInfo ..
 
 
 .PHONY: _submodules

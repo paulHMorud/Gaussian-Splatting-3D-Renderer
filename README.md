@@ -1,7 +1,6 @@
 # Gaussian Splatting 3D Renderer
 A real-time 3D Gaussian Splatting renderer built in C++ and OpenGL. This project is mostly based on the [3D Gaussian Splatting rasterizer](https://github.com/graphdeco-inria/diff-gaussian-rasterization.git) from the paper [3D Gaussian Splatting for Real-Time Rendering of Radiance Fields](https://repo-sam.inria.fr/fungraph/3d-gaussian-splatting/), loading trained scene representations from `.ply` point cloud files and rendering them interactively using OpenGL and GLSL shaders.
-Built as part of the NTNU course **TDT4230 – Graphics and Visualization**, extending the [TDT4230 base framework]
-(https://github.com/bartvbl/TDT4230-Assignment-1).
+Built as part of the NTNU course **TDT4230 – Graphics and Visualization**, extending the [TDT4230 base framework](https://github.com/bartvbl/TDT4230-Assignment-1).
 
 
 ## Results
@@ -31,7 +30,7 @@ A sample scene (`cactus.ply`) is included in the `res/` folder and will work out
 
 For larger scenes, download from one of the following sources and place the `.ply` files in the `res/` folder:
 
-- **Full dataset** (all scenes from the paper, large download):  
+- **Full dataset** (all scenes from the paper, large download ~7GB):  
   [repo-sam.inria.fr/fungraph/3d-gaussian-splatting/evaluation/images.zip](https://repo-sam.inria.fr/fungraph/3d-gaussian-splatting/evaluation/images.zip)
 
 - **Individual scenes** (pick and choose via Google Drive):  
@@ -42,19 +41,13 @@ For larger scenes, download from one of the following sources and place the `.pl
 - GCC or Clang (C++14 or newer)
 - CMake 3.6+
 - Git
-- [PCL (Point Cloud Library)](https://pointclouds.org/) — for `.ply` file loading
 - Python 3 — used during the build process to generate GLAD bindings
 
-Install PCL on Ubuntu/Debian:
-```bash
-sudo apt install libpcl-dev
-```
 
 
 ### Windows (Not tested and based on the TDT4230 code this code extends)
 - Microsoft Visual Studio (with C++ workload)
 - CMake (GUI or command-line)
-- PCL for Windows — see [PCL releases](https://github.com/PointCloudLibrary/pcl/releases)
 
 ---
 
@@ -82,6 +75,7 @@ make
 ./glowbox
 ```
 
+
 #### Other build targets
 | Target | Description |
 |--------|-------------|
@@ -97,7 +91,7 @@ make
 ---
 
 ## Dependencies
-All C++ dependencies are included as git submodules under `lib/`, except PCL which must be installed separately on your system.
+All C++ dependencies are included as git submodules under `lib/`
 
 | Library | Purpose |
 |---------|---------|

@@ -1,7 +1,6 @@
 cmake_minimum_required(VERSION 3.6)
 project(glowbox)
 
-find_package(PCL REQUIRED COMPONENTS io common)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON CACHE INTERNAL "")
 
 #
@@ -64,6 +63,54 @@ add_subdirectory(lib/SFML)
 # FMT
 #
 add_subdirectory(lib/fmt)
+
+#
+# PCL (minimal: common + io only)
+#
+# These must be set as FORCE cache vars before add_subdirectory so PCL's
+# internal option() calls pick them up.
+set(PCL_SHARED_LIBS              OFF CACHE BOOL "" FORCE)
+set(BUILD_tools                  OFF CACHE BOOL "" FORCE)
+set(BUILD_apps                   OFF CACHE BOOL "" FORCE)
+set(BUILD_examples               OFF CACHE BOOL "" FORCE)
+set(BUILD_global_tests           OFF CACHE BOOL "" FORCE)
+set(BUILD_visualization          OFF CACHE BOOL "" FORCE)
+set(BUILD_surface                OFF CACHE BOOL "" FORCE)
+set(BUILD_segmentation           OFF CACHE BOOL "" FORCE)
+set(BUILD_registration           OFF CACHE BOOL "" FORCE)
+set(BUILD_recognition            OFF CACHE BOOL "" FORCE)
+set(BUILD_keypoints              OFF CACHE BOOL "" FORCE)
+set(BUILD_tracking               OFF CACHE BOOL "" FORCE)
+set(BUILD_stereo                 OFF CACHE BOOL "" FORCE)
+set(BUILD_ml                     OFF CACHE BOOL "" FORCE)
+set(BUILD_features               OFF CACHE BOOL "" FORCE)
+set(BUILD_filters                OFF CACHE BOOL "" FORCE)
+set(BUILD_sample_consensus       OFF CACHE BOOL "" FORCE)
+set(BUILD_search                 OFF CACHE BOOL "" FORCE)
+set(BUILD_kdtree                 OFF CACHE BOOL "" FORCE)
+# io transitively needs octree for compressed formats; leave ON
+set(BUILD_octree                 ON  CACHE BOOL "" FORCE)
+set(BUILD_common                 ON  CACHE BOOL "" FORCE)
+set(BUILD_io                     ON  CACHE BOOL "" FORCE)
+
+set(WITH_VTK                     OFF CACHE BOOL "" FORCE)
+set(WITH_QT                      OFF CACHE BOOL "" FORCE)
+set(WITH_OPENNI                  OFF CACHE BOOL "" FORCE)
+set(WITH_OPENNI2                 OFF CACHE BOOL "" FORCE)
+set(WITH_OPENGL                  OFF CACHE BOOL "" FORCE)
+set(WITH_ENSENSO                 OFF CACHE BOOL "" FORCE)
+set(WITH_DAVIDSDK                OFF CACHE BOOL "" FORCE)
+set(WITH_DSSDK                   OFF CACHE BOOL "" FORCE)
+set(WITH_RSSDK                   OFF CACHE BOOL "" FORCE)
+set(WITH_RSSDK2                  OFF CACHE BOOL "" FORCE)
+set(WITH_CUDA                    OFF CACHE BOOL "" FORCE)
+set(WITH_PCAP                    OFF CACHE BOOL "" FORCE)
+set(WITH_LIBUSB                  OFF CACHE BOOL "" FORCE)
+set(WITH_PNG                     OFF CACHE BOOL "" FORCE)
+set(WITH_QHULL                   OFF CACHE BOOL "" FORCE)
+set(WITH_DOCS                    OFF CACHE BOOL "" FORCE)
+
+add_subdirectory(lib/pcl)
 
 #
 # GLAD (generate if missing)
@@ -157,7 +204,7 @@ target_include_directories(${PROJECT_NAME} PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/lib/stb
     ${CMAKE_CURRENT_SOURCE_DIR}/lib/arrrgh
     ${CMAKE_CURRENT_SOURCE_DIR}/lib/SFML/include
-    ${PCL_INCLUDE_DIRS}
+    ${CMAKE_BINARY_DIR}/lib/pcl/include   # adjust to match find result
 )
 
 #
@@ -170,9 +217,8 @@ target_link_libraries(${PROJECT_NAME}
     fmt::fmt
     ${GLFW_LIBRARIES}
     ${GLAD_LIBRARIES}
-    ${PCL_LIBRARIES}
+    pcl_io
+    pcl_common
 )
-
-add_definitions(${PCL_DEFINITIONS})
 
 set_property(DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR} PROPERTY VS_STARTUP_PROJECT glowbox)
